@@ -3,7 +3,7 @@ import platform
 import sys
 
 import yt_dlp
-from PySide6.QtCore import QObject, Qt, QUrl, Signal
+from PySide6.QtCore import QObject, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QPlainTextEdit, QPushButton,
                                QTabWidget, QTextBrowser, QVBoxLayout, QWidget)

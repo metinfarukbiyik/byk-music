@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <title>BYK Music</title>
+  <style>
+    body { width: 300px; margin: 0; font: 13px "Segoe UI", -apple-system, Roboto, Arial, sans-serif; color: #0f172a; background: #f4f6fa; }
+    header { display: flex; align-items: center; gap: 10px; padding: 14px 16px; background: #0f1b2d; color: #fff; }
+    header img { width: 32px; height: 32px; }
+    header b { display: block; font-size: 14px; }
+    header small { color: #a9b4c6; }
+    main { padding: 14px 16px; display: grid; gap: 12px; }
+    .status { display: flex; align-items: center; gap: 8px; padding: 10px 12px; background: #fff; border: 1px solid #e3e8ef; border-radius: 10px; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #98a2b3; }
+    .dot.ok { background: #12b76a; } .dot.err { background: #f04438; }
+    label { display: flex; align-items: center; gap: 8px; }
+    select { margin-left: auto; padding: 4px 6px; border: 1px solid #d0d5dd; border-radius: 6px; }
+    footer { padding: 10px 16px; color: #64748b; font-size: 11px; border-top: 1px solid #e3e8ef; }
+    a { color: #1f4fd8; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <img src="icons/48.png" alt="">
+    <div><b>BYK Music</b><small>YouTube İndirme Yardımcısı</small></div>
+  </header>
+  <main>
+    <div class="status"><span class="dot" id="dot"></span><span id="state">Uygulama denetleniyor…</span></div>
+    <label><input type="checkbox" id="detect"> Video açılınca indirme balonu göster</label>
+    <label><input type="checkbox" id="showButton"> Sayfada MP3 / MP4 düğmelerini göster</label>
+  </main>
+  <footer>Metin Faruk Bıyık · <a href="https://biyik.dev" target="_blank" rel="noopener">biyik.dev</a></footer>
+  <script src="popup.js"></script>
+</body>
+</html>

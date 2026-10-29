@@ -41,11 +41,15 @@ class UpdateCheckWorker(QThread):
     up_to_date = Signal()
     failed = Signal(str)
 
+    def __init__(self, opener: urllib.request.OpenerDirector | None = None):
+        super().__init__()
+        self.opener = opener or urllib.request.build_opener()
+
     def run(self):
         try:
             req = urllib.request.Request(API, headers={"Accept": "application/vnd.github+json",
                                                        "User-Agent": "BYKMusic-Updater"})
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            with self.opener.open(req, timeout=15) as resp:
                 data = json.load(resp)
         except Exception as exc:
             log.warning("Güncelleme denetimi başarısız: %s", exc)
@@ -75,15 +79,16 @@ class UpdateDownloadWorker(QThread):
     done = Signal(str)
     failed = Signal(str)
 
-    def __init__(self, url: str, name: str):
+    def __init__(self, url: str, name: str, opener: urllib.request.OpenerDirector | None = None):
         super().__init__()
         self.url, self.name = url, name
+        self.opener = opener or urllib.request.build_opener()
 
     def run(self):
         try:
             dest = Path(tempfile.mkdtemp(prefix="bykmusic-update-")) / self.name
             req = urllib.request.Request(self.url, headers={"User-Agent": "BYKMusic-Updater"})
-            with urllib.request.urlopen(req, timeout=30) as resp, open(dest, "wb") as fh:
+            with self.opener.open(req, timeout=30) as resp, open(dest, "wb") as fh:
                 total = int(resp.headers.get("Content-Length") or 0)
                 got = 0
                 while chunk := resp.read(1 << 16):

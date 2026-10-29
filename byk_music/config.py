@@ -20,7 +20,7 @@ DEVELOPER = {
     "name": "Metin Faruk Bıyık",
     "brand": "biyik.dev",
     "title": "Yazılım Geliştirici",
-    "email": "mb.metinbiyik@gmail.com",
+    "email": "metin@biyik.dev",
     "website": "https://biyik.dev",
     "github": f"https://github.com/{GITHUB_OWNER}",
     # Uluslararası biçimde, yalnızca rakam: 90 5xx xxx xx xx -> "905xxxxxxxxx"

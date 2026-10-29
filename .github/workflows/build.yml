@@ -21,7 +21,8 @@ env:
   PYTHONUTF8: "1"   # Windows konsolunda Türkçe karakterler için
   PYI_COMMON: >-
     --noconfirm --clean --windowed --name BYKMusic
-    --collect-all yt_dlp --collect-all imageio_ffmpeg --collect-all certifi
+    --collect-all yt_dlp --collect-all imageio_ffmpeg --collect-all certifi --collect-all qtawesome
+    --add-data browser-extension:browser-extension
 
 jobs:
   version:
@@ -115,10 +116,13 @@ jobs:
     needs: [version, windows, macos]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
         with:
           path: assets
           merge-multiple: true
+      - name: Tarayıcı eklentisini paketle
+        run: cd browser-extension && zip -r ../assets/BYKMusic-Browser-Extension.zip .
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.version.outputs.version }}

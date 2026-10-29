@@ -1,6 +1,10 @@
-from PySide6.QtCore import QPropertyAnimation, Qt, Signal
+from PySide6.QtCore import QPropertyAnimation, QRectF, Qt, QTimer, Signal
+from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QPen
 from PySide6.QtWidgets import (QButtonGroup, QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QLayout,
                                QProgressBar, QPushButton, QVBoxLayout, QWidget)
+
+from .icons import pixmap
+from .styles import ACCENT, SIDEBAR_TEXT
 
 
 def repolish(w: QWidget):
@@ -69,6 +73,7 @@ class NavButton(QPushButton):
     """Kenar çubuğu menü öğesi: simge + metin + sayaç rozeti."""
 
     def __init__(self, icon: str, text: str, checkable: bool = True):
+        """icon: ikon paketi adı (örn. "download")."""
         super().__init__()
         self.setObjectName("nav")
         self.setCheckable(checkable)
@@ -77,7 +82,8 @@ class NavButton(QPushButton):
         lay = QHBoxLayout(self)
         lay.setContentsMargins(12, 0, 10, 0)
         lay.setSpacing(10)
-        self.icon = QLabel(icon)
+        self.icon_name = icon
+        self.icon = QLabel()
         self.icon.setObjectName("navIcon")
         self.icon.setFixedWidth(22)
         self.icon.setAlignment(Qt.AlignCenter)
@@ -96,9 +102,9 @@ class NavButton(QPushButton):
         self._sync(False)
 
     def _sync(self, on: bool):
-        for w in (self.icon, self.label):
-            w.setProperty("active", on)
-            repolish(w)
+        self.icon.setPixmap(pixmap(self.icon_name, 18, "#FFFFFF" if on else SIDEBAR_TEXT))
+        self.label.setProperty("active", on)
+        repolish(self.label)
 
     def set_badge(self, value=None, kind: str = "accent"):
         if not value:
@@ -143,7 +149,8 @@ class EmptyState(QWidget):
         lay = QVBoxLayout(self)
         lay.setAlignment(Qt.AlignCenter)
         lay.setSpacing(10)
-        self.icon = QLabel(icon)
+        self.icon = QLabel()
+        self.icon.setPixmap(pixmap(icon, 26, ACCENT))
         self.icon.setObjectName("emptyIcon")
         self.icon.setFixedSize(56, 56)
         self.icon.setAlignment(Qt.AlignCenter)
@@ -165,7 +172,134 @@ class EmptyState(QWidget):
         lay.addWidget(self.busy, 0, Qt.AlignCenter)
 
     def set(self, icon: str, title: str, text: str, busy: bool = False):
-        self.icon.setText(icon)
+        self.icon.setPixmap(pixmap(icon, 26, ACCENT))
         self.title.setText(title)
         self.text.setText(text)
         self.busy.setVisible(busy)
+
+
+class Spinner(QWidget):
+    """Dönen yay şeklinde yükleme göstergesi."""
+
+    def __init__(self, size: int = 28, color: str = ACCENT):
+        super().__init__()
+        self.setFixedSize(size, size)
+        self._angle = 0
+        self._color = QColor(color)
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._tick)
+
+    def start(self):
+        self._timer.start(16)
+
+    def stop(self):
+        self._timer.stop()
+
+    def _tick(self):
+        self._angle = (self._angle + 6) % 360
+        self.update()
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        r = QRectF(self.rect()).adjusted(3, 3, -3, -3)
+        track = QColor(self._color)
+        track.setAlpha(40)
+        p.setPen(QPen(track, 3))
+        p.drawEllipse(r)
+        p.setPen(QPen(self._color, 3, Qt.SolidLine, Qt.RoundCap))
+        p.drawArc(r, -self._angle * 16, 100 * 16)
+        p.end()
+
+
+class SkeletonRows(QWidget):
+    """Tablo satırlarını taklit eden, üzerinde ışık kayan iskelet görünüm."""
+
+    WIDTHS = (0.62, 0.48, 0.71, 0.55, 0.66, 0.43, 0.58)
+
+    def __init__(self, rows: int = 7):
+        super().__init__()
+        self.rows = rows
+        self._phase = 0.0
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._tick)
+        self.setMinimumHeight(rows * 50)
+
+    def start(self):
+        self._timer.start(16)
+
+    def stop(self):
+        self._timer.stop()
+
+    def _tick(self):
+        self._phase = (self._phase + 0.012) % 1.6
+        self.update()
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        w = self.width()
+        base, line = QColor("#EEF1F5"), QColor("#F0F2F5")
+        shimmer_x = (self._phase - 0.3) * w
+        grad = QLinearGradient(shimmer_x - 160, 0, shimmer_x + 160, 0)
+        grad.setColorAt(0.0, base)
+        grad.setColorAt(0.5, QColor("#F8FAFC"))
+        grad.setColorAt(1.0, base)
+        brush = QBrush(grad)
+        row_h = 50
+        for i in range(self.rows):
+            y = i * row_h
+            p.setPen(Qt.NoPen)
+            p.setBrush(brush)
+            p.drawRoundedRect(QRectF(16, y + 17, 16, 16), 4, 4)                 # onay kutusu
+            p.drawRoundedRect(QRectF(52, y + 20, 18, 10), 4, 4)                 # sıra no
+            title_w = (w - 560) * self.WIDTHS[i % len(self.WIDTHS)]
+            p.drawRoundedRect(QRectF(92, y + 19, max(title_w, 80), 12), 6, 6)   # başlık
+            p.drawRoundedRect(QRectF(w - 470, y + 19, 40, 12), 6, 6)            # süre
+            p.drawRoundedRect(QRectF(w - 390, y + 15, 86, 20), 10, 10)          # rozet
+            p.drawRoundedRect(QRectF(w - 250, y + 22, 220, 6), 3, 3)            # ilerleme
+            p.setPen(QPen(line, 1))
+            p.drawLine(0, y + row_h, w, y + row_h)
+        p.end()
+
+
+class LoadingView(QFrame):
+    """Bağlantı çözümlenirken gösterilen düzenli yükleme kartı."""
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("card")
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+
+        head = QFrame()
+        head.setObjectName("loadingHead")
+        hl = QHBoxLayout(head)
+        hl.setContentsMargins(20, 16, 20, 16)
+        hl.setSpacing(14)
+        self.spinner = Spinner()
+        texts = QVBoxLayout()
+        texts.setSpacing(2)
+        self.title = QLabel("Bağlantı çözümleniyor")
+        self.title.setObjectName("h2")
+        self.subtitle = QLabel("")
+        self.subtitle.setObjectName("small")
+        texts.addWidget(self.title)
+        texts.addWidget(self.subtitle)
+        hl.addWidget(self.spinner)
+        hl.addLayout(texts, 1)
+        lay.addWidget(head)
+
+        self.skeleton = SkeletonRows()
+        lay.addWidget(self.skeleton, 1)
+
+    def start(self, title: str, subtitle: str):
+        self.title.setText(title)
+        self.subtitle.setText(subtitle)
+        self.spinner.start()
+        self.skeleton.start()
+
+    def stop(self):
+        self.spinner.stop()
+        self.skeleton.stop()

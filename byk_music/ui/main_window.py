@@ -1,4 +1,6 @@
 import re
+import shutil
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -7,20 +9,28 @@ from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QFileDialog, QFrame,
                                QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
-                               QProgressBar, QProgressDialog, QPushButton, QStackedWidget, QSystemTrayIcon,
+                               QProgressBar, QProgressDialog, QPushButton, QScrollArea, QStackedWidget,
+                               QSystemTrayIcon,
                                QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from .. import __version__
 from ..config import APP_NAME, APP_TAGLINE
 from ..core import updater
+from ..core.bridge import PORT, BrowserBridge
 from ..core.downloader import DownloadWorker, InfoWorker, ffmpeg_path, fmt_duration
 from ..core.history import History, reveal_in_folder
+from ..core.links import analyze
+from ..core.naming import clean_title, safe_filename
+from ..core.net import ConnectionTestWorker, url_opener, ydl_base_opts
 from ..core.settings import Settings, config_dir
+from .account import AccountPage
+from .bubble import DetectBubble
 from .contact import ContactPage
 from .dev_dialog import DeveloperDialog, LogBuffer
-from .styles import app_icon
+from .icons import icon, set_icon
+from .styles import ACCENT, app_icon
 from .toast import ToastManager
-from .widgets import Badge, EmptyState, NavButton, Segmented, card, field, repolish
+from .widgets import Badge, EmptyState, LoadingView, NavButton, Segmented, card, field, repolish
 
 YT_RE = re.compile(r"https?://(www\.|m\.|music\.)?(youtube\.com|youtu\.be)/\S+")
 COL_CHECK, COL_NO, COL_TITLE, COL_DUR, COL_STATE, COL_PROGRESS = range(6)
@@ -37,8 +47,14 @@ FINAL = ("done", "error", "cancelled")
 VIDEO_QUALITIES = [("En iyi", "best"), ("2160p (4K)", "2160"), ("1440p", "1440"), ("1080p", "1080"),
                    ("720p", "720"), ("480p", "480"), ("360p", "360")]
 AUDIO_QUALITIES = ["320", "256", "192", "128"]
-PAGE_DOWNLOAD, PAGE_HISTORY, PAGE_SETTINGS, PAGE_CONTACT = range(4)
+PAGE_DOWNLOAD, PAGE_HISTORY, PAGE_ACCOUNT, PAGE_SETTINGS, PAGE_CONTACT = range(5)
 UPDATE_INTERVAL_MS = 60 * 60 * 1000  # çalışırken saatte bir güncelleme denetle
+
+
+def extension_source() -> Path:
+    """Uygulamayla birlikte gelen tarayıcı eklentisi klasörü."""
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
+    return base / "browser-extension"
 
 
 def page_header(title: str, subtitle: str) -> QVBoxLayout:
@@ -68,8 +84,9 @@ class MainWindow(QMainWindow):
         self._last_clip = ""
         self._new_history = 0
         self._batch: list[int] = []
-        self._batch_fmt = settings["format"]
         self._cancelled = False
+        self._pending_rows: list[int] = []   # indirme sürerken eklenen satırlar
+        self._seen_urls: set[str] = set()     # balonda gösterilmiş bağlantılar
 
         self.setWindowTitle(f"{APP_NAME} – {APP_TAGLINE}")
         self.setWindowIcon(app_icon())
@@ -92,6 +109,8 @@ class MainWindow(QMainWindow):
         self.pages = QStackedWidget()
         self.pages.addWidget(self._build_download_page())
         self.pages.addWidget(self._build_history_page())
+        self.account_page = AccountPage(self.settings, self.notify, self.load_url)
+        self.pages.addWidget(self.account_page)
         self.pages.addWidget(self._build_settings_page())
         self.pages.addWidget(ContactPage(self.notify))
         cl.addWidget(self.pages, 1)
@@ -103,6 +122,14 @@ class MainWindow(QMainWindow):
         self.update_timer.timeout.connect(lambda: self.check_updates(silent=True))
         self.tray = None
         self._setup_tray()
+        self.bubble = DetectBubble()
+        self.bubble.download.connect(lambda item, fmt: self.quick_add(item, fmt))
+        self.bubble.open_list.connect(lambda item: self.load_url(item["url"]))
+        self.bridge = BrowserBridge(self)
+        self.bridge.detected.connect(self._on_detected)
+        self.bridge.add_requested.connect(self._on_add_requested)
+        if self.settings["browser_bridge"]:
+            self.bridge.start()
         self._load_settings_into_ui()
         self._refresh_history()
         QGuiApplication.instance().applicationStateChanged.connect(self._on_app_state)
@@ -144,8 +171,9 @@ class MainWindow(QMainWindow):
         sec.setObjectName("sideSection")
         lay.addWidget(sec)
         lay.addSpacing(4)
-        self.nav = [NavButton("↓", "İndir"), NavButton("◷", "Geçmiş"), NavButton("⚙", "Ayarlar"),
-                    NavButton("✉", "İletişim")]
+        self.nav = [NavButton("download", "İndir"), NavButton("history", "Geçmiş"),
+                    NavButton("youtube", "YouTube Hesabım"), NavButton("cog-outline", "Ayarlar"),
+                    NavButton("email-outline", "İletişim")]
         for i, b in enumerate(self.nav):
             b.clicked.connect(lambda _=False, idx=i: self._goto(idx))
             lay.addWidget(b)
@@ -156,9 +184,9 @@ class MainWindow(QMainWindow):
         sec2.setObjectName("sideSection")
         lay.addWidget(sec2)
         lay.addSpacing(4)
-        upd = NavButton("⟳", "Güncellemeler", checkable=False)
+        upd = NavButton("update", "Güncellemeler", checkable=False)
         upd.clicked.connect(self._on_update_nav)
-        dev = NavButton("</>", "Geliştirici", checkable=False)
+        dev = NavButton("code-tags", "Geliştirici", checkable=False)
         dev.clicked.connect(self.open_developer)
         self.nav_update = upd
         lay.addWidget(upd)
@@ -187,8 +215,10 @@ class MainWindow(QMainWindow):
         self.dir_edit = QLineEdit(readOnly=True)
         self.dir_edit.setMinimumWidth(220)
         self.dir_btn = QPushButton("Değiştir")
+        set_icon(self.dir_btn, "folder-outline")
         self.dir_btn.clicked.connect(self.choose_dir)
         open_btn = QPushButton("Aç")
+        set_icon(open_btn, "folder-open-outline")
         open_btn.clicked.connect(self.open_dir)
         dir_row.addWidget(self.dir_edit, 1)
         dir_row.addWidget(self.dir_btn)
@@ -223,11 +253,14 @@ class MainWindow(QMainWindow):
         self.url_edit.setObjectName("bigInput")
         self.url_edit.setPlaceholderText("https://www.youtube.com/watch?v=…  ya da  …/playlist?list=…")
         self.url_edit.setClearButtonEnabled(True)
+        self.url_edit.addAction(icon("link-variant"), QLineEdit.LeadingPosition)
         self.url_edit.returnPressed.connect(self.fetch)
         paste = QPushButton("Yapıştır")
+        set_icon(paste, "content-paste")
         paste.clicked.connect(lambda: self.url_edit.setText(QApplication.clipboard().text().strip()))
         self.fetch_btn = QPushButton("Listele")
         self.fetch_btn.setObjectName("primary")
+        set_icon(self.fetch_btn, "playlist-play", "#FFFFFF")
         self.fetch_btn.clicked.connect(self.fetch)
         tl.addWidget(self.url_edit, 1)
         tl.addWidget(paste)
@@ -246,29 +279,37 @@ class MainWindow(QMainWindow):
         self.filter_edit = QLineEdit()
         self.filter_edit.setPlaceholderText("Listede ara…")
         self.filter_edit.setClearButtonEnabled(True)
+        self.filter_edit.addAction(icon("magnify"), QLineEdit.LeadingPosition)
         self.filter_edit.setFixedWidth(220)
         self.filter_edit.textChanged.connect(self._apply_filter)
         sel_all = QPushButton("Tümünü Seç")
+        set_icon(sel_all, "checkbox-multiple-marked-outline")
         sel_all.clicked.connect(lambda: self._set_all_checked(True))
         sel_none = QPushButton("Seçimi Kaldır")
+        set_icon(sel_none, "checkbox-multiple-blank-outline")
         sel_none.clicked.connect(lambda: self._set_all_checked(False))
         bar.addWidget(self.list_title)
         for chip in (self.chip_total, self.chip_sel, self.chip_done, self.chip_err):
             bar.addWidget(chip)
         bar.addStretch()
+        self.clean_btn = QPushButton("Adları Temizle")
+        set_icon(self.clean_btn, "format-list-bulleted")
+        self.clean_btn.setToolTip("Seçili öğelerin adlarından (Official Video), [HD], #etiket gibi kısımları kaldırır")
+        self.clean_btn.clicked.connect(self.clean_names)
         bar.addWidget(self.filter_edit)
+        bar.addWidget(self.clean_btn)
         bar.addWidget(sel_all)
         bar.addWidget(sel_none)
         lay.addLayout(bar)
 
         self.table = QTableWidget(0, 6)
-        self.table.setHorizontalHeaderLabels(["", "#", "BAŞLIK", "SÜRE", "DURUM", "İLERLEME"])
+        self.table.setHorizontalHeaderLabels(["", "#", "DOSYA ADI  ·  düzenlemek için çift tıklayın",
+                                              "SÜRE", "DURUM", "İLERLEME"])
         self.table.verticalHeader().setVisible(False)
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setEditTriggers(QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed)
         self.table.setShowGrid(False)
-        self.table.setFocusPolicy(Qt.NoFocus)
         self.table.verticalHeader().setDefaultSectionSize(50)
         hh = self.table.horizontalHeader()
         hh.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
@@ -276,12 +317,15 @@ class MainWindow(QMainWindow):
             hh.setSectionResizeMode(col, QHeaderView.Fixed)
             self.table.setColumnWidth(col, width)
         hh.setSectionResizeMode(COL_TITLE, QHeaderView.Stretch)
-        self.table.itemChanged.connect(lambda _: self._update_counts())
+        self.table.itemChanged.connect(self._on_item_changed)
 
-        self.list_empty = EmptyState("↓", "Henüz liste yok",
-                                     "Yukarıya bir YouTube bağlantısı yapıştırıp Listele'ye tıklayın.")
+        self.list_empty = EmptyState("download", "Henüz liste yok",
+                                     "Yukarıya bir YouTube bağlantısı yapıştırıp Listele'ye tıklayın "
+                                     "ya da tarayıcı eklentisiyle YouTube'dan doğrudan gönderin.")
+        self.loading = LoadingView()
         self.list_stack = QStackedWidget()
         self.list_stack.addWidget(self.list_empty)
+        self.list_stack.addWidget(self.loading)
         self.list_stack.addWidget(self.table)
         lay.addWidget(self.list_stack, 1)
 
@@ -300,14 +344,18 @@ class MainWindow(QMainWindow):
         prog_col.addWidget(self.overall_label)
         prog_col.addWidget(self.overall_bar)
         self.retry_btn = QPushButton("Hatalıları Yeniden Dene")
+        set_icon(self.retry_btn, "refresh")
         self.retry_btn.clicked.connect(self.retry_failed)
         self.retry_btn.hide()
         self.cancel_btn = QPushButton("Durdur")
         self.cancel_btn.setObjectName("danger")
+        set_icon(self.cancel_btn, "stop", "#B42318")
         self.cancel_btn.clicked.connect(self.cancel_download)
         self.cancel_btn.hide()
         self.dl_btn = QPushButton("Seçilenleri İndir")
         self.dl_btn.setObjectName("primary")
+        set_icon(self.dl_btn, "download", "#FFFFFF")
+        self.dl_btn.setMinimumWidth(210)
         self.dl_btn.setEnabled(False)
         self.dl_btn.clicked.connect(lambda: self.start_download())
         bl.addLayout(prog_col, 1)
@@ -331,11 +379,13 @@ class MainWindow(QMainWindow):
         self.hist_search = QLineEdit()
         self.hist_search.setPlaceholderText("Geçmişte ara…")
         self.hist_search.setClearButtonEnabled(True)
+        self.hist_search.addAction(icon("magnify"), QLineEdit.LeadingPosition)
         self.hist_search.setFixedWidth(280)
         self.hist_search.textChanged.connect(self._refresh_history)
         self.hist_count = Badge("", "neutral")
         clear = QPushButton("Geçmişi Temizle")
         clear.setObjectName("danger")
+        set_icon(clear, "delete-outline", "#B42318")
         clear.clicked.connect(self._clear_history)
         bar.addWidget(self.hist_search)
         bar.addWidget(self.hist_count)
@@ -359,7 +409,7 @@ class MainWindow(QMainWindow):
             self.hist_table.setColumnWidth(col, width)
         hh.setSectionResizeMode(1, QHeaderView.Stretch)
 
-        self.hist_empty = EmptyState("◷", "Geçmiş boş", "İndirdiğiniz dosyalar burada listelenir.")
+        self.hist_empty = EmptyState("history", "Geçmiş boş", "İndirdiğiniz dosyalar burada listelenir.")
         self.hist_stack = QStackedWidget()
         self.hist_stack.addWidget(self.hist_empty)
         self.hist_stack.addWidget(self.hist_table)
@@ -374,14 +424,20 @@ class MainWindow(QMainWindow):
         lay.setSpacing(14)
         lay.addLayout(page_header("Ayarlar", "Değişiklikler otomatik kaydedilir."))
 
-        def section(title: str, options: list[tuple[str, str, str]]) -> QFrame:
+        def section(title: str, icon_name: str, options: list[tuple[str, str, str]]) -> tuple[QFrame, QVBoxLayout]:
             box = card()
             v = QVBoxLayout(box)
             v.setContentsMargins(20, 16, 20, 16)
             v.setSpacing(12)
+            head = QHBoxLayout()
+            ic = QLabel()
+            ic.setPixmap(icon(icon_name, ACCENT).pixmap(18, 18))
             t = QLabel(title)
             t.setObjectName("h2")
-            v.addWidget(t)
+            head.addWidget(ic)
+            head.addWidget(t)
+            head.addStretch()
+            v.addLayout(head)
             for key, label, hint in options:
                 cb = QCheckBox(label)
                 cb.setChecked(bool(self.settings[key]))
@@ -390,40 +446,142 @@ class MainWindow(QMainWindow):
                 if hint:
                     h = QLabel(hint)
                     h.setObjectName("small")
+                    h.setWordWrap(True)
                     h.setContentsMargins(28, 0, 0, 4)
                     v.addWidget(h)
-            return box
+            return box, v
 
-        lay.addWidget(section("Dosyalar", [
+        box, _ = section("Dosyalar ve adlandırma", "folder-outline", [
+            ("clean_titles", "Dosya adlarını otomatik temizle",
+             "“Şarkı (Official Video) [HD] #pop” → “Şarkı”. Adı indirmeden önce listede çift tıklayarak "
+             "da değiştirebilirsiniz; ad MP3 etiketine de yazılır."),
             ("playlist_folder", "Liste indirmelerinde liste adıyla alt klasör oluştur", ""),
             ("number_prefix", "Liste sırasını dosya adının başına ekle", "Örnek: 01 - Şarkı adı.mp3"),
             ("embed_thumbnail", "MP3 dosyalarına kapak resmi ve etiket bilgisi göm", ""),
-        ]))
-        lay.addWidget(section("Bildirimler ve kolaylıklar", [
+        ])
+        lay.addWidget(box)
+
+        box, v = section("Tarayıcı entegrasyonu", "web", [
+            ("browser_bridge", "Tarayıcı eklentisinden gelen bağlantıları kabul et",
+             f"Yalnızca bu bilgisayardan (127.0.0.1:{PORT}) bağlantı kabul edilir; dış ağa kapalıdır."),
+            ("show_bubble", "YouTube'da video açıldığında ekranın kenarında indirme balonu göster", ""),
+        ])
+        row = QHBoxLayout()
+        row.setContentsMargins(28, 0, 0, 0)
+        ext_btn = QPushButton("Eklentiyi Kur")
+        ext_btn.setObjectName("primary")
+        set_icon(ext_btn, "web", "#FFFFFF")
+        ext_btn.clicked.connect(self.install_extension)
+        row.addWidget(ext_btn)
+        row.addStretch()
+        v.addLayout(row)
+        lay.addWidget(box)
+
+        box, v = section("Ağ ve proxy", "lan", [])
+        prow = QHBoxLayout()
+        prow.setSpacing(18)
+        self.proxy_mode = QComboBox()
+        for label, key in (("Sistem ayarlarını kullan", "system"), ("Proxy kullanma", "none"),
+                           ("Özel proxy", "custom")):
+            self.proxy_mode.addItem(label, key)
+        self.proxy_mode.setCurrentIndex(max(self.proxy_mode.findData(self.settings["proxy_mode"]), 0))
+        self.proxy_mode.currentIndexChanged.connect(self._proxy_changed)
+        self.proxy_edit = QLineEdit(self.settings["proxy_url"])
+        self.proxy_edit.setPlaceholderText("http://kullanıcı:parola@sunucu:8080  ·  socks5://sunucu:1080")
+        self.proxy_edit.editingFinished.connect(self._proxy_changed)
+        self.proxy_test = QPushButton("Bağlantıyı Test Et")
+        set_icon(self.proxy_test, "lan-connect")
+        self.proxy_test.clicked.connect(self._test_connection)
+        prow.addWidget(field("Bağlantı", self.proxy_mode))
+        purl = QHBoxLayout()
+        purl.setSpacing(6)
+        purl.addWidget(self.proxy_edit, 1)
+        purl.addWidget(self.proxy_test)
+        prow.addWidget(field("Proxy adresi", purl), 1)
+        v.addLayout(prow)
+        hint = QLabel("İndirme, YouTube hesabı ve güncelleme bağlantılarının tamamı bu ayarı kullanır. "
+                      "HTTP, HTTPS ve SOCKS5 desteklenir.")
+        hint.setObjectName("small")
+        hint.setWordWrap(True)
+        v.addWidget(hint)
+        lay.addWidget(box)
+        self._proxy_changed(save=False)
+
+        box, _ = section("Bildirimler ve güncellemeler", "update", [
             ("notify_system", "Uygulama arka plandayken sistem bildirimi göster", ""),
             ("clipboard_watch", "Panodaki YouTube bağlantısını otomatik algıla",
              "Uygulamaya geri döndüğünüzde kopyaladığınız bağlantı kutuya eklenir."),
             ("auto_update", "Güncellemeleri otomatik denetle", "Açılışta ve uygulama açıkken saatte bir denetlenir."),
             ("auto_install", "Güncellemeleri arka planda indir ve kur",
              "Yeni sürüm indirildiğinde hemen ya da uygulama kapanırken kurulur."),
-        ]))
+        ])
+        lay.addWidget(box)
 
-        info = card()
-        il = QVBoxLayout(info)
-        il.setContentsMargins(20, 16, 20, 16)
-        il.setSpacing(6)
-        t = QLabel("Sistem")
-        t.setObjectName("h2")
-        il.addWidget(t)
-        for k, v in (("ffmpeg", ffmpeg_path() or "bulunamadı"), ("yt-dlp", yt_dlp.version.__version__),
-                     ("Ayar klasörü", str(config_dir()))):
+        box, il = section("Sistem", "information-outline", [])
+        for k, v in (("Sürüm", __version__), ("ffmpeg", ffmpeg_path() or "bulunamadı"),
+                     ("yt-dlp", yt_dlp.version.__version__), ("Ayar klasörü", str(config_dir()))):
             l = QLabel(f"<span style='color:#64748B'>{k}:</span> {v}")
             l.setTextInteractionFlags(Qt.TextSelectableByMouse)
             l.setWordWrap(True)
             il.addWidget(l)
-        lay.addWidget(info)
+        lay.addWidget(box)
         lay.addStretch()
-        return page
+
+        scroll = QScrollArea()
+        scroll.setObjectName("pageScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setWidget(page)
+        return scroll
+
+    def _proxy_changed(self, *_, save: bool = True):
+        mode = self.proxy_mode.currentData()
+        self.proxy_edit.setEnabled(mode == "custom")
+        if save:
+            self.settings["proxy_mode"] = mode
+            self.settings["proxy_url"] = self.proxy_edit.text().strip()
+            self.settings.save()
+
+    def _test_connection(self):
+        self._proxy_changed()
+        self.proxy_test.setEnabled(False)
+        self.proxy_test.setText("Deneniyor…")
+        self._conn_worker = ConnectionTestWorker(url_opener(self.settings))
+
+        def done(ok: bool, msg: str):
+            self.proxy_test.setEnabled(True)
+            self.proxy_test.setText("Bağlantıyı Test Et")
+            self.notify("Bağlantı başarılı" if ok else "Bağlantı kurulamadı", msg, "success" if ok else "error")
+
+        self._conn_worker.done.connect(done)
+        self._conn_worker.start()
+
+    def install_extension(self):
+        """Eklenti dosyalarını kalıcı bir klasöre kopyalar ve kurulum adımlarını gösterir."""
+        src = extension_source()
+        if not src.exists():
+            self.notify("Eklenti dosyaları bulunamadı", str(src), "error")
+            return
+        dest = config_dir() / "browser-extension"
+        shutil.copytree(src, dest, dirs_exist_ok=True)
+        box = QMessageBox(self)
+        box.setWindowTitle("Tarayıcı eklentisini kur")
+        box.setIconPixmap(icon("web", ACCENT).pixmap(48, 48))
+        box.setText("BYK Music eklentisi birkaç adımda kurulur:")
+        box.setInformativeText(
+            "Chrome, Edge, Brave, Opera:\n"
+            "1. Adres çubuğuna chrome://extensions (Edge: edge://extensions) yazın.\n"
+            "2. Sağ üstten “Geliştirici modu”nu açın.\n"
+            "3. “Paketlenmemiş öğe yükle” düğmesine tıklayın.\n"
+            "4. Açılan klasörü (browser-extension) seçin.\n\n"
+            "Firefox:\n"
+            "about:debugging → Bu Firefox → Geçici eklenti yükle → klasördeki manifest.json\n\n"
+            "Kurulumdan sonra YouTube'da bir video açtığınızda indirme balonu görünür.")
+        open_btn = box.addButton("Klasörü Göster", QMessageBox.AcceptRole)
+        box.addButton("Kapat", QMessageBox.RejectRole)
+        box.exec()
+        if box.clickedButton() is open_btn:
+            reveal_in_folder(str(dest / "manifest.json"))
 
     def _setup_tray(self):
         if not QSystemTrayIcon.isSystemTrayAvailable():
@@ -448,6 +606,8 @@ class MainWindow(QMainWindow):
         self.pages.setCurrentIndex(idx)
         for i, b in enumerate(self.nav):
             b.setChecked(i == idx)
+        if idx == PAGE_ACCOUNT:
+            self.account_page.on_shown()
         if idx == PAGE_HISTORY:
             self._new_history = 0
             self.nav[PAGE_HISTORY].set_badge(None)
@@ -460,6 +620,13 @@ class MainWindow(QMainWindow):
             self.tray.setVisible(on)
         if key == "auto_update":
             self.update_timer.start() if on else self.update_timer.stop()
+        if key == "browser_bridge":
+            if on and not self.bridge.start():
+                self.notify("Tarayıcı bağlantısı açılamadı",
+                            f"{PORT} numaralı yerel bağlantı noktası başka bir uygulama tarafından kullanılıyor.",
+                            "error")
+            elif not on:
+                self.bridge.stop()
 
     def _load_settings_into_ui(self):
         self.dir_edit.setText(self.settings["download_dir"])
@@ -531,17 +698,48 @@ class MainWindow(QMainWindow):
                     action=("Hemen listele", self.fetch))
 
     # =============================================================== liste
+    def load_url(self, url: str):
+        """Bağlantıyı İndir sayfasında açar ve listeler (hesap sayfası, balon, eklenti)."""
+        self._goto(PAGE_DOWNLOAD)
+        self._bring_front()
+        self.url_edit.setText(url)
+        self.fetch()
+
     def fetch(self):
         url = self.url_edit.text().strip()
-        if not url or self.info_worker or self.dl_worker:
+        if not url or self.info_worker:
+            return
+        if self.dl_worker:
+            self.notify("İndirme sürüyor", "Yeni liste için mevcut indirmenin bitmesini bekleyin.", "warning")
             return
         self._last_clip = url
+        link = analyze(url)
+        target = link.fetch_url
+        if link.kind == "mix":
+            self.notify("Otomatik karışık liste algılandı",
+                        "Bu bağlantı YouTube'un öneri listesi (Mix) içeriyor; yalnızca bu video eklendi.", "info")
+        elif link.kind == "both":
+            box = QMessageBox(self)
+            box.setWindowTitle("Video mu, liste mi?")
+            box.setText("Bu bağlantı hem bir video hem de bir oynatma listesi içeriyor.")
+            box.setInformativeText("Yalnızca bu videoyu mu, yoksa listenin tamamını mı eklemek istersiniz?")
+            only = box.addButton("Yalnızca bu video", QMessageBox.AcceptRole)
+            whole = box.addButton("Tüm liste", QMessageBox.ActionRole)
+            box.addButton("Vazgeç", QMessageBox.RejectRole)
+            box.setDefaultButton(only)
+            box.exec()
+            if box.clickedButton() is whole:
+                target = link.playlist_url
+            elif box.clickedButton() is not only:
+                return
+
         self.fetch_btn.setEnabled(False)
         self.fetch_btn.setText("Yükleniyor…")
-        self.list_empty.set("…", "Bağlantı çözümleniyor", "Video bilgileri YouTube'dan alınıyor.", busy=True)
-        self.list_stack.setCurrentWidget(self.list_empty)
+        self.loading.start("Bağlantı çözümleniyor",
+                           f"Bilgiler YouTube'dan alınıyor · {target[:90]}")
+        self.list_stack.setCurrentWidget(self.loading)
         self._set_status("● Çözümleniyor", "info", pulse=True)
-        self.info_worker = InfoWorker(url)
+        self.info_worker = InfoWorker(target, ydl_base_opts(self.settings))
         self.info_worker.result.connect(self._on_info)
         self.info_worker.failed.connect(self._on_info_failed)
         self.info_worker.finished.connect(self._fetch_done)
@@ -549,38 +747,65 @@ class MainWindow(QMainWindow):
 
     def _fetch_done(self):
         self.info_worker = None
+        self.loading.stop()
         self.fetch_btn.setEnabled(True)
         self.fetch_btn.setText("Listele")
 
     def _on_info_failed(self, msg: str):
         self._set_status("Hazır", "neutral")
-        self.list_empty.set("!", "Bağlantı çözümlenemedi", msg[:300])
-        if self.rows:
-            self.list_stack.setCurrentWidget(self.table)
+        self.list_empty.set("alert-outline", "Bağlantı çözümlenemedi", msg[:300])
+        self.list_stack.setCurrentWidget(self.table if self.rows else self.list_empty)
         self.notify("Bağlantı çözümlenemedi", msg[:160], "error")
+
+    def _display_name(self, title: str) -> str:
+        return clean_title(title) if self.settings["clean_titles"] else title
+
+    def _append_row(self, it: dict) -> int:
+        """Tabloya bir öğe ekler; satır numarasını döndürür."""
+        i = self.table.rowCount()
+        it.setdefault("name", self._display_name(it["title"]))
+        self.table.blockSignals(True)
+        self.table.insertRow(i)
+        chk = QTableWidgetItem()
+        chk.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+        chk.setCheckState(Qt.Checked)
+        self.table.setItem(i, COL_CHECK, chk)
+        no = QTableWidgetItem(str(i + 1))
+        no.setFlags(Qt.ItemIsEnabled)
+        no.setForeground(Qt.gray)
+        self.table.setItem(i, COL_NO, no)
+        t = QTableWidgetItem(it["name"])
+        t.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsEditable)
+        t.setToolTip(f"YouTube başlığı: {it['title']}\n{it.get('uploader') or ''}".strip())
+        self.table.setItem(i, COL_TITLE, t)
+        d = QTableWidgetItem(fmt_duration(it.get("duration")))
+        d.setFlags(Qt.ItemIsEnabled)
+        self.table.setItem(i, COL_DUR, d)
+        self.rows.append(self._make_row_widgets(i))
+        self._set_row_state(i, "waiting")
+        self.table.blockSignals(False)
+        return i
+
+    def _on_item_changed(self, item: QTableWidgetItem):
+        if item.column() == COL_TITLE and item.row() < len(self.playlist["items"]):
+            it = self.playlist["items"][item.row()]
+            name = safe_filename(item.text()) if item.text().strip() else ""
+            self.table.blockSignals(True)
+            if name:
+                it["name"] = name
+                item.setText(name)
+            else:
+                item.setText(it["name"])  # boş ad kabul edilmez
+            self.table.blockSignals(False)
+        self._update_counts()
 
     def _on_info(self, data: dict):
         self.playlist = data
         items = data["items"]
-        self.table.blockSignals(True)
         self.table.setRowCount(0)
         self.rows = []
-        for i, it in enumerate(items):
-            self.table.insertRow(i)
-            chk = QTableWidgetItem()
-            chk.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
-            chk.setCheckState(Qt.Checked)
-            self.table.setItem(i, COL_CHECK, chk)
-            no = QTableWidgetItem(str(i + 1))
-            no.setForeground(Qt.gray)
-            self.table.setItem(i, COL_NO, no)
-            t = QTableWidgetItem(it["title"])
-            t.setToolTip(f"{it['title']}\n{it['uploader']}".strip())
-            self.table.setItem(i, COL_TITLE, t)
-            self.table.setItem(i, COL_DUR, QTableWidgetItem(fmt_duration(it["duration"])))
-            self.rows.append(self._make_row_widgets(i))
-            self._set_row_state(i, "waiting")
-        self.table.blockSignals(False)
+        for it in items:
+            self._append_row(it)
         self.filter_edit.clear()
 
         if data["is_playlist"]:
@@ -590,13 +815,24 @@ class MainWindow(QMainWindow):
         self.list_title.setToolTip(data["title"])
         self.list_stack.setCurrentWidget(self.table if items else self.list_empty)
         if not items:
-            self.list_empty.set("!", "Liste boş", "Bu bağlantıda indirilebilir öğe bulunamadı.")
+            self.list_empty.set("alert-outline", "Liste boş", "Bu bağlantıda indirilebilir öğe bulunamadı.")
         self._set_status("Hazır", "neutral")
         self.overall_bar.setValue(0)
         self.overall_label.setText("İndirme bekleniyor")
         self._update_counts()
         kind = "Liste yüklendi" if data["is_playlist"] else "Video bulundu"
-        self.notify(kind, f"{len(items)} öğe listelendi. İndirmek istediklerinizi seçin.", "success")
+        self.notify(kind, f"{len(items)} öğe listelendi. Dosya adını değiştirmek için ada çift tıklayın.", "success")
+
+    def clean_names(self):
+        """Seçili satırların adlarını YouTube başlığından yeniden temizler."""
+        rows = self._checked_rows()
+        self.table.blockSignals(True)
+        for r in rows:
+            it = self.playlist["items"][r]
+            it["name"] = clean_title(it["title"])
+            self.table.item(r, COL_TITLE).setText(it["name"])
+        self.table.blockSignals(False)
+        self.notify("Adlar düzenlendi", f"{len(rows)} öğenin adı etiketlerden temizlendi.", "success")
 
     def _make_row_widgets(self, r: int) -> dict:
         badge = Badge()
@@ -639,6 +875,12 @@ class MainWindow(QMainWindow):
             msg = Path(row["path"]).name
         detail.setText(msg)
         detail.setToolTip(msg)
+        # indirme başladıktan sonra ad değiştirilemez
+        item = self.table.item(r, COL_TITLE)
+        if item:
+            editable = state in ("waiting", "error", "cancelled")
+            flags = Qt.ItemIsEnabled | Qt.ItemIsSelectable | (Qt.ItemIsEditable if editable else Qt.NoItemFlags)
+            item.setFlags(flags)
 
     def _checked_rows(self) -> list[int]:
         return [r for r in range(self.table.rowCount())
@@ -655,7 +897,9 @@ class MainWindow(QMainWindow):
     def _apply_filter(self, text: str):
         q = text.casefold().strip()
         for r in range(self.table.rowCount()):
-            self.table.setRowHidden(r, bool(q) and q not in self.table.item(r, COL_TITLE).text().casefold())
+            it = self.playlist["items"][r]
+            hay = f"{self.table.item(r, COL_TITLE).text()} {it['title']}".casefold()
+            self.table.setRowHidden(r, bool(q) and q not in hay)
 
     def _update_counts(self):
         total = len(self.rows)
@@ -674,9 +918,11 @@ class MainWindow(QMainWindow):
         self.dl_btn.setEnabled(checked > 0 and idle)
         self.dl_btn.setText(f"Seçilenleri İndir ({checked})" if checked else "Seçilenleri İndir")
         self.retry_btn.setVisible(err > 0 and idle)
+        self.clean_btn.setEnabled(checked > 0 and idle)
 
     # ============================================================ indirme
-    def start_download(self, rows: list[int] | None = None):
+    def start_download(self, rows: list[int] | None = None, extend: bool = False):
+        """extend: indirme sürerken sıraya eklenen satırlar mevcut partiye dahil edilir."""
         rows = rows if rows is not None else self._checked_rows()
         if not rows or self.dl_worker:
             return
@@ -693,14 +939,18 @@ class MainWindow(QMainWindow):
         }
         jobs = []
         for r in rows:
+            it = self.playlist["items"][r]
             self.rows[r].update(pct=0.0, path=None)
             self._set_row_state(r, "queued")
-            jobs.append({"row": r, "url": self.playlist["items"][r]["url"], "index": r + 1})
-        self._batch = rows
-        self._batch_fmt = s["format"]
+            it.setdefault("format", s["format"])
+            if not it.get("single"):
+                it["format"] = s["format"]
+            jobs.append({"row": r, "url": it["url"], "index": r + 1, "format": it["format"],
+                         "name": it.get("name"), "single": it.get("single", False)})
+        self._batch = self._batch + rows if extend else rows
         self._cancelled = False
 
-        self.dl_worker = DownloadWorker(jobs, opts)
+        self.dl_worker = DownloadWorker(jobs, opts, ydl_base_opts(s))
         self.dl_worker.progress.connect(self._on_progress)
         self.dl_worker.state.connect(self._on_state)
         self.dl_worker.saved.connect(lambda r, p: self.rows[r].__setitem__("path", p))
@@ -708,11 +958,50 @@ class MainWindow(QMainWindow):
         self._set_busy(True)
         self._update_overall()
         self.dl_worker.start()
-        self.notify("İndirme başladı", f"{len(rows)} öğe sıraya alındı · {self._format_desc()}", "info",
-                    system=True)
+        if extend:
+            return
+        what = f"“{self.playlist['items'][rows[0]]['name']}”" if len(rows) == 1 else f"{len(rows)} öğe"
+        self.notify("İndirme başladı", f"{what} sıraya alındı · {self._format_desc()}", "info", system=True)
+
+    def quick_add(self, item: dict, fmt: str | None = None):
+        """Tarayıcıdan gelen tek videoyu listeye ekleyip indirir."""
+        link = analyze(item["url"])
+        if item.get("kind") == "playlist" or link.kind == "playlist":
+            self.load_url(item["url"])
+            return
+        url = link.video_url or item["url"]
+        fmt = fmt or self.settings["format"]
+        for r, it in enumerate(self.playlist["items"]):
+            if it["url"] == url and self.rows[r]["state"] in ("queued", "active", "processing"):
+                self.notify("Zaten sırada", it["name"], "neutral")
+                return
+        it = {"title": item.get("title") or url, "url": url, "duration": None, "uploader": "",
+              "single": True, "format": fmt}
+        self.playlist["items"].append(it)
+        r = self._append_row(it)
+        if self.list_stack.currentWidget() is not self.table:
+            self.list_title.setText("İndirme listesi")
+            self.list_stack.setCurrentWidget(self.table)
+        if self.dl_worker:
+            self._pending_rows.append(r)
+            self._set_row_state(r, "queued")
+            self.notify("Sıraya eklendi", f"{it['name']} · {fmt.upper()}", "info")
+        else:
+            self.start_download([r])
+        self._update_counts()
+
+    def _on_detected(self, item: dict):
+        if not self.settings["show_bubble"] or item["url"] in self._seen_urls:
+            return
+        self._seen_urls.add(item["url"])
+        self.bubble.show_item({**item, "title": self._display_name(item["title"])}, self.settings["format"])
+
+    def _on_add_requested(self, item: dict):
+        self.bubble.dismiss()
+        self.quick_add(item, item.get("format"))
 
     def _set_busy(self, busy: bool):
-        for w in (self.seg, self.quality_combo, self.dir_btn, self.fetch_btn, self.url_edit):
+        for w in (self.seg, self.quality_combo, self.dir_btn, self.fetch_btn):
             w.setEnabled(not busy)
         self.cancel_btn.setVisible(busy)
         self.cancel_btn.setEnabled(True)
@@ -727,6 +1016,7 @@ class MainWindow(QMainWindow):
     def cancel_download(self):
         if self.dl_worker:
             self._cancelled = True
+            self._pending_rows = []
             self.dl_worker.cancel()
             self.cancel_btn.setEnabled(False)
             self._set_status("Durduruluyor…", "processing")
@@ -746,7 +1036,8 @@ class MainWindow(QMainWindow):
             row = self.rows[r]
             item = self.playlist["items"][r]
             if row["path"]:
-                self.history.add(item["title"], item["url"], row["path"], self._batch_fmt)
+                self.history.add(item.get("name") or item["title"], item["url"], row["path"],
+                                 item.get("format") or self.settings["format"])
                 self._new_history += 1
                 if self.pages.currentIndex() != PAGE_HISTORY:
                     self.nav[PAGE_HISTORY].set_badge(self._new_history, "success")
@@ -770,6 +1061,11 @@ class MainWindow(QMainWindow):
             self.setWindowTitle(f"(%{pct:.0f}) {APP_NAME}")
 
     def _on_finished(self):
+        if self._pending_rows and not self._cancelled:
+            pending, self._pending_rows = self._pending_rows, []
+            self.dl_worker = None
+            QTimer.singleShot(0, lambda: self.start_download(pending, extend=True))
+            return
         rows = [self.rows[r] for r in self._batch]
         ok = sum(r["state"] == "done" for r in rows)
         err = sum(r["state"] == "error" for r in rows)
@@ -833,10 +1129,12 @@ class MainWindow(QMainWindow):
             if exists:
                 play = QPushButton("Aç")
                 play.setObjectName("link")
+                set_icon(play, "play-circle-outline", ACCENT)
                 play.setCursor(Qt.PointingHandCursor)
                 play.clicked.connect(lambda _=False, p=h["path"]: QDesktopServices.openUrl(QUrl.fromLocalFile(p)))
                 show = QPushButton("Klasörde göster")
                 show.setObjectName("link")
+                set_icon(show, "folder-open-outline", ACCENT)
                 show.setCursor(Qt.PointingHandCursor)
                 show.clicked.connect(lambda _=False, p=h["path"]: reveal_in_folder(p))
                 al.addWidget(play)
@@ -849,7 +1147,7 @@ class MainWindow(QMainWindow):
         if items:
             self.hist_stack.setCurrentWidget(self.hist_table)
         else:
-            self.hist_empty.set("◷", "Sonuç yok" if q else "Geçmiş boş",
+            self.hist_empty.set("history", "Sonuç yok" if q else "Geçmiş boş",
                                 "Aramanızla eşleşen kayıt bulunamadı." if q
                                 else "İndirdiğiniz dosyalar burada listelenir.")
             self.hist_stack.setCurrentWidget(self.hist_empty)
@@ -879,7 +1177,7 @@ class MainWindow(QMainWindow):
     def check_updates(self, silent: bool):
         if self.up_worker and self.up_worker.isRunning():
             return
-        self.up_worker = updater.UpdateCheckWorker()
+        self.up_worker = updater.UpdateCheckWorker(url_opener(self.settings))
         self.up_worker.available.connect(self._on_update_available)
         if not silent:
             self.up_worker.up_to_date.connect(
@@ -923,7 +1221,7 @@ class MainWindow(QMainWindow):
         if self.up_dl_worker and self.up_dl_worker.isRunning():
             return
         info = self.update_info
-        self.up_dl_worker = updater.UpdateDownloadWorker(info["url"], info["name"])
+        self.up_dl_worker = updater.UpdateDownloadWorker(info["url"], info["name"], url_opener(self.settings))
         dlg = None
         if interactive:
             dlg = QProgressDialog("Güncelleme indiriliyor…", None, 0, 100, self)
@@ -987,5 +1285,7 @@ class MainWindow(QMainWindow):
             self.dl_worker.wait(3000)
         if self.tray:
             self.tray.hide()
+        self.bridge.stop()
+        self.bubble.close()
         self._install_pending(relaunch=False)
         event.accept()

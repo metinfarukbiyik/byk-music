@@ -15,6 +15,15 @@ DEFAULTS = {
     "auto_install": True,       # güncellemeyi arka planda indirip kur
     "notify_system": True,      # pencere arka plandayken sistem bildirimi göster
     "clipboard_watch": True,    # panodaki YouTube bağlantısını otomatik algıla
+    "clean_titles": True,       # dosya adlarındaki (Official Video), [HD] gibi etiketleri temizle
+    "browser_bridge": True,     # tarayıcı eklentisinden gelen bağlantıları kabul et (yalnızca 127.0.0.1)
+    "show_bubble": True,        # YouTube'da video algılanınca indirme balonu göster
+    "proxy_mode": "system",     # system | none | custom
+    "proxy_url": "",            # http://kullanıcı:parola@sunucu:port  ya da  socks5://sunucu:port
+    "account_source": "",       # "" (bağlı değil) | browser | file
+    "account_browser": "firefox",
+    "account_profile": "",
+    "cookies_file": "",
 }
 
 

@@ -91,6 +91,11 @@ QLabel#small {{ color: {MUTED}; font-size: 11px; }}
 QLabel#emptyIcon {{ background: {ACCENT_SOFT}; color: {ACCENT}; border-radius: 28px; font-size: 24px; font-weight: 700; }}
 
 QFrame#card {{ background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 10px; }}
+QScrollArea#pageScroll {{ background: {BG}; border: none; }}
+QScrollArea#pageScroll > QWidget > QWidget#page {{ background: {BG}; }}
+QFrame#loadingHead {{ background: transparent; border: none; border-bottom: 1px solid {BORDER}; }}
+QFrame#bubble {{ background: {SURFACE}; border: 1px solid #D0D5DD; border-radius: 14px; }}
+QLabel#bubbleTitle {{ font-size: 14px; font-weight: 700; }}
 
 /* düğmeler */
 QPushButton {{ background: {SURFACE}; border: 1px solid #D0D5DD; border-radius: 8px; padding: 7px 14px;

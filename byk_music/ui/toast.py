@@ -4,14 +4,15 @@ from PySide6.QtCore import (QEasingCurve, QEvent, QObject, QPoint,
 from PySide6.QtWidgets import (QFrame, QGraphicsOpacityEffect, QHBoxLayout,
                                QLabel, QPushButton, QVBoxLayout, QWidget)
 
+from .icons import icon as icon_for, pixmap
 from .styles import ACCENT, ERROR, MUTED, SUCCESS, WARNING
 
 KINDS = {
-    "info": (ACCENT, "i"),
-    "success": (SUCCESS, "✓"),
-    "warning": (WARNING, "!"),
-    "error": (ERROR, "✕"),
-    "neutral": (MUTED, "•"),
+    "info": (ACCENT, "information-outline"),
+    "success": (SUCCESS, "check"),
+    "warning": (WARNING, "alert-outline"),
+    "error": (ERROR, "close"),
+    "neutral": (MUTED, "information-outline"),
 }
 MARGIN = 10  # kartlar arası boşluk
 
@@ -33,10 +34,11 @@ class Toast(QWidget):
         row = QHBoxLayout(box)
         row.setContentsMargins(14, 12, 10, 12)
         row.setSpacing(12)
-        icon = QLabel(glyph)
+        icon = QLabel()
+        icon.setPixmap(pixmap(glyph, 16, "#FFFFFF"))
         icon.setFixedSize(26, 26)
         icon.setAlignment(Qt.AlignCenter)
-        icon.setStyleSheet(f"background:{color}; color:white; border-radius:13px; font-weight:700;")
+        icon.setStyleSheet(f"background:{color}; border-radius:13px;")
         row.addWidget(icon, 0, Qt.AlignTop)
 
         col = QVBoxLayout()
@@ -58,7 +60,8 @@ class Toast(QWidget):
             col.addWidget(b, 0, Qt.AlignLeft)
         row.addLayout(col, 1)
 
-        close = QPushButton("✕")
+        close = QPushButton()
+        close.setIcon(icon_for("close", "#98A2B3"))
         close.setObjectName("toastClose")
         close.setFixedSize(20, 20)
         close.setCursor(Qt.PointingHandCursor)

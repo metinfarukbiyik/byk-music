@@ -6,6 +6,8 @@ import yt_dlp
 from PySide6.QtCore import QThread, Signal
 from yt_dlp.utils import sanitize_filename
 
+from .naming import SetTitlePP
+
 log = logging.getLogger("byk.downloader")
 
 
@@ -60,12 +62,14 @@ class InfoWorker(QThread):
     result = Signal(dict)
     failed = Signal(str)
 
-    def __init__(self, url: str):
+    def __init__(self, url: str, base_opts: dict | None = None):
         super().__init__()
         self.url = url
+        self.base_opts = base_opts or {}
 
     def run(self):
         opts = {
+            **self.base_opts,
             "quiet": True,
             "no_warnings": True,
             "extract_flat": "in_playlist",
@@ -106,8 +110,18 @@ class InfoWorker(QThread):
 
 
 def _clean_error(exc: Exception) -> str:
-    text = str(exc)
-    return text.replace("ERROR: ", "").strip() or exc.__class__.__name__
+    text = str(exc).replace("ERROR: ", "").strip() or exc.__class__.__name__
+    low = text.lower()
+    if "could not copy" in low and "cookie" in low:
+        return "Tarayıcı çerezleri okunamadı. Tarayıcıyı tamamen kapatıp yeniden deneyin."
+    if "failed to decrypt" in low or "app-bound" in low:
+        return ("Bu tarayıcının çerezleri şifreli olduğu için okunamadı. "
+                "Firefox kullanın ya da cookies.txt dosyası seçin.")
+    if "sign in to confirm" in low or "login required" in low or "private" in low:
+        return "Bu içerik için YouTube oturumu gerekiyor. Hesap sayfasından bağlanın."
+    if "proxy" in low or "tunnel connection failed" in low:
+        return f"Proxy bağlantısı kurulamadı: {text[:160]}"
+    return text
 
 
 class DownloadWorker(QThread):
@@ -118,23 +132,28 @@ class DownloadWorker(QThread):
     saved = Signal(int, str)             # satır, son dosya yolu
     finished_all = Signal()
 
-    def __init__(self, jobs: list[dict], opts: dict):
-        """jobs: [{row, url, title, index}], opts: biçim/kalite/klasör ayarları."""
+    def __init__(self, jobs: list[dict], opts: dict, base_opts: dict | None = None):
+        """jobs: [{row, url, index}], opts: biçim/kalite/klasör ayarları, base_opts: proxy/oturum."""
         super().__init__()
         self.jobs = jobs
         self.opts = opts
+        self.base_opts = base_opts or {}
         self._cancel = False
 
     def cancel(self):
         self._cancel = True
 
-    def _build_opts(self, row: int, index: int) -> dict:
+    def _build_opts(self, job: dict) -> dict:
+        """job: {row, url, index, format?, name?, single?} — biçim ve ad iş başına değişebilir."""
         o = self.opts
+        row = job["row"]
+        in_playlist = o["is_playlist"] and not job.get("single")
         out_dir = Path(o["download_dir"])
-        if o["is_playlist"] and o["playlist_folder"] and o["playlist_title"]:
+        if in_playlist and o["playlist_folder"] and o["playlist_title"]:
             out_dir = out_dir / sanitize_filename(o["playlist_title"])
         out_dir.mkdir(parents=True, exist_ok=True)
-        prefix = f"{index:02d} - " if o["is_playlist"] and o["number_prefix"] else ""
+        prefix = f"{job['index']:02d} - " if in_playlist and o["number_prefix"] else ""
+        fmt_kind = job.get("format") or o["format"]
 
         def hook(d):
             if self._cancel:
@@ -164,6 +183,7 @@ class DownloadWorker(QThread):
                     self._last_path = path
 
         opts = {
+            **self.base_opts,
             "outtmpl": str(out_dir / f"{prefix}%(title)s.%(ext)s"),
             "noplaylist": True,
             "quiet": True,
@@ -180,7 +200,7 @@ class DownloadWorker(QThread):
         if ff:
             opts["ffmpeg_location"] = ff
 
-        if o["format"] == "mp3":
+        if fmt_kind == "mp3":
             opts["format"] = "bestaudio/best"
             pps = [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3",
                     "preferredquality": str(o["audio_quality"])},
@@ -211,7 +231,9 @@ class DownloadWorker(QThread):
             self.state.emit(row, "active", "Başlıyor…")
             self._last_path = None
             try:
-                with yt_dlp.YoutubeDL(self._build_opts(row, job["index"])) as ydl:
+                with yt_dlp.YoutubeDL(self._build_opts(job)) as ydl:
+                    if job.get("name"):
+                        ydl.add_post_processor(SetTitlePP(job["name"]), when="pre_process")
                     ydl.download([job["url"]])
                 if self._last_path:
                     self.saved.emit(row, self._last_path)
