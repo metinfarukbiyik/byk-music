@@ -34,10 +34,18 @@ from .multilink import MultiLinkDialog, find_links
 from .styles import ACCENT, app_icon
 from .toast import ToastManager
 from .update_dialog import UpdateDialog
-from .widgets import Badge, EmptyState, LoadingView, NavButton, Segmented, card, field, repolish
+from .widgets import Badge, ElidedLabel, EmptyState, LoadingView, NavButton, Segmented, card, field, repolish
 
 YT_RE = re.compile(r"https?://(www\.|m\.|music\.)?(youtube\.com|youtu\.be)/\S+")
-COL_CHECK, COL_NO, COL_TITLE, COL_DUR, COL_STATE, COL_PROGRESS = range(6)
+COL_CHECK, COL_NO, COL_TITLE, COL_DUR, COL_FMT, COL_STATE, COL_PROGRESS = range(7)
+FORMAT_BADGES = {"mp3": ("♫ MP3", "info"), "mp4": ("▶ MP4", "violet")}
+
+
+def format_badge(fmt: str) -> Badge:
+    text, kind = FORMAT_BADGES.get(fmt, FORMAT_BADGES["mp3"])
+    b = Badge(text, kind)
+    b.setToolTip("Ses dosyası (MP3)" if fmt == "mp3" else "Video dosyası (MP4)")
+    return b
 STATES = {  # durum: (rozet metni, rozet türü)
     "waiting": ("Bekliyor", "neutral"),
     "queued": ("Sırada", "neutral"),
@@ -365,7 +373,7 @@ class MainWindow(QMainWindow):
         # liste başlığı, sayaç rozetleri ve araçlar
         bar = QHBoxLayout()
         bar.setSpacing(8)
-        self.list_title = QLabel("Liste")
+        self.list_title = ElidedLabel("Liste")
         self.list_title.setObjectName("h2")
         self.chip_total = Badge("", "neutral")
         self.chip_sel = Badge("", "info")
@@ -375,18 +383,23 @@ class MainWindow(QMainWindow):
         self.filter_edit.setPlaceholderText("Listede ara…")
         self.filter_edit.setClearButtonEnabled(True)
         self.filter_edit.addAction(icon("magnify"), QLineEdit.LeadingPosition)
-        self.filter_edit.setFixedWidth(220)
+        self.filter_edit.setMinimumWidth(140)
+        self.filter_edit.setMaximumWidth(220)
         self.filter_edit.textChanged.connect(self._apply_filter)
-        sel_all = QPushButton("Tümünü Seç")
-        set_icon(sel_all, "checkbox-multiple-marked-outline")
+        sel_all = QPushButton()
+        sel_all.setObjectName("iconBtn")
+        sel_all.setToolTip("Tümünü seç")
+        set_icon(sel_all, "checkbox-multiple-marked-outline", size=18)
         sel_all.clicked.connect(lambda: self._set_all_checked(True))
-        sel_none = QPushButton("Seçimi Kaldır")
-        set_icon(sel_none, "checkbox-multiple-blank-outline")
+        sel_none = QPushButton()
+        sel_none.setObjectName("iconBtn")
+        sel_none.setToolTip("Seçimi kaldır")
+        set_icon(sel_none, "checkbox-multiple-blank-outline", size=18)
         sel_none.clicked.connect(lambda: self._set_all_checked(False))
-        bar.addWidget(self.list_title)
+        bar.addWidget(self.list_title, 1)
         for chip in (self.chip_total, self.chip_sel, self.chip_done, self.chip_err):
             bar.addWidget(chip)
-        bar.addStretch()
+        bar.addSpacing(8)
         self.clean_btn = QPushButton("Adları Temizle")
         set_icon(self.clean_btn, "format-list-bulleted")
         self.clean_btn.setToolTip("Seçili öğelerin adlarından (Official Video), [HD], #etiket gibi kısımları kaldırır")
@@ -397,9 +410,9 @@ class MainWindow(QMainWindow):
         bar.addWidget(sel_none)
         lay.addLayout(bar)
 
-        self.table = QTableWidget(0, 6)
+        self.table = QTableWidget(0, 7)
         self.table.setHorizontalHeaderLabels(["", "#", "DOSYA ADI  ·  düzenlemek için çift tıklayın",
-                                              "SÜRE", "DURUM", "İLERLEME"])
+                                              "SÜRE", "BİÇİM", "DURUM", "İLERLEME"])
         self.table.verticalHeader().setVisible(False)
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -408,7 +421,8 @@ class MainWindow(QMainWindow):
         self.table.verticalHeader().setDefaultSectionSize(50)
         hh = self.table.horizontalHeader()
         hh.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        for col, width in ((COL_CHECK, 40), (COL_NO, 44), (COL_DUR, 70), (COL_STATE, 130), (COL_PROGRESS, 240)):
+        for col, width in ((COL_CHECK, 40), (COL_NO, 44), (COL_DUR, 66), (COL_FMT, 84), (COL_STATE, 130),
+                           (COL_PROGRESS, 230)):
             hh.setSectionResizeMode(col, QHeaderView.Fixed)
             self.table.setColumnWidth(col, width)
         hh.setSectionResizeMode(COL_TITLE, QHeaderView.Stretch)
@@ -760,6 +774,8 @@ class MainWindow(QMainWindow):
             idx = self.quality_combo.findData(self.settings["video_quality"])
         self.quality_combo.setCurrentIndex(max(idx, 0))
         self.quality_combo.blockSignals(False)
+        for r in range(len(self.rows)):
+            self._update_fmt_badge(r)
         if save:
             self.settings.save()
 
@@ -965,6 +981,14 @@ class MainWindow(QMainWindow):
         wl.addStretch()
         self.table.setCellWidget(r, COL_STATE, wrap)
 
+        fmt_wrap = QWidget()
+        fl = QHBoxLayout(fmt_wrap)
+        fl.setContentsMargins(6, 0, 6, 0)
+        fmt_badge = Badge()
+        fl.addWidget(fmt_badge)
+        fl.addStretch()
+        self.table.setCellWidget(r, COL_FMT, fmt_wrap)
+
         pw = QWidget()
         pl = QVBoxLayout(pw)
         pl.setContentsMargins(6, 8, 14, 8)
@@ -977,11 +1001,25 @@ class MainWindow(QMainWindow):
         pl.addWidget(detail)
         pl.addWidget(bar)
         self.table.setCellWidget(r, COL_PROGRESS, pw)
-        return {"badge": badge, "bar": bar, "detail": detail, "state": "", "pct": 0.0, "path": None}
+        return {"badge": badge, "fmt_badge": fmt_badge, "bar": bar, "detail": detail, "state": "", "pct": 0.0,
+                "path": None}
+
+    def _row_format(self, r: int) -> str:
+        """Satırın biçimi: indirmesi başlamış ya da balondan seçilmişse kendi biçimi, yoksa seçili biçim."""
+        it = self.playlist["items"][r]
+        if it.get("format") and (it.get("single") or self.rows[r]["state"] not in ("waiting", "cancelled")):
+            return it["format"]
+        return self.settings["format"]
+
+    def _update_fmt_badge(self, r: int):
+        text, kind = FORMAT_BADGES.get(self._row_format(r), FORMAT_BADGES["mp3"])
+        self.rows[r]["fmt_badge"].set(text, kind)
 
     def _set_row_state(self, r: int, state: str, msg: str = ""):
         row = self.rows[r]
         row["state"] = state
+        if r < len(self.playlist["items"]):
+            self._update_fmt_badge(r)
         text, kind = STATES[state]
         row["badge"].set(text, kind)
         row["badge"].set_pulse(state in ("active", "processing"))
@@ -1383,7 +1421,7 @@ class MainWindow(QMainWindow):
             bw = QWidget()
             bl = QHBoxLayout(bw)
             bl.setContentsMargins(6, 0, 6, 0)
-            bl.addWidget(Badge(fmt.upper(), "info" if fmt == "mp3" else "violet"))
+            bl.addWidget(format_badge(fmt))
             bl.addStretch()
             self.hist_table.setCellWidget(i, 2, bw)
 

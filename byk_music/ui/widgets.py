@@ -1,7 +1,7 @@
-from PySide6.QtCore import QPropertyAnimation, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QPropertyAnimation, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QPen
 from PySide6.QtWidgets import (QButtonGroup, QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QLayout,
-                               QProgressBar, QPushButton, QVBoxLayout, QWidget)
+                               QProgressBar, QPushButton, QSizePolicy, QVBoxLayout, QWidget)
 
 from .icons import pixmap
 from .styles import ACCENT, SIDEBAR_TEXT
@@ -336,3 +336,24 @@ class ContactCard(QPushButton):
         lay.addWidget(ic)
         lay.addLayout(texts, 1)
         lay.addWidget(arrow)
+
+
+class ElidedLabel(QLabel):
+    """Sığmadığında sonunu “…” ile kısaltan tek satırlık etiket."""
+
+    def __init__(self, text: str = ""):
+        super().__init__(text)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.setMinimumWidth(40)
+
+    def sizeHint(self):
+        hint = super().sizeHint()
+        return QSize(self.fontMetrics().horizontalAdvance(self.text()) + 4, hint.height())
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setPen(self.palette().color(self.foregroundRole()))
+        p.setFont(self.font())
+        text = self.fontMetrics().elidedText(self.text(), Qt.ElideRight, self.width())
+        p.drawText(self.rect(), Qt.AlignLeft | Qt.AlignVCenter, text)
+        p.end()
