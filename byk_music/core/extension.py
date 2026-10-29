@@ -124,7 +124,9 @@ def open_extensions_page(key: str) -> bool:
             exe = _win_exe(key)
             if not exe:
                 return False
-            subprocess.Popen([exe, url], close_fds=True)
+            # Tarayıcı kapalıysa sayfa açılır; açıksa tarayıcılar iç sayfaları dışarıdan açmaya izin
+            # vermediğinden yalnızca yeni pencere gelir (adres sihirbazda panoya kopyalanır).
+            subprocess.Popen([exe, "--new-window", url] if key != "firefox" else [exe, url], close_fds=True)
             return True
         if sys.platform == "darwin":
             app = _mac_app(key)

@@ -150,8 +150,21 @@ def _clean_error(exc: Exception) -> str:
     if "failed to decrypt" in low or "app-bound" in low:
         return ("Bu tarayıcı çerezlerini şifreli tuttuğu için doğrudan okunamıyor. "
                 "“Eklenti ile aktar” yöntemini kullanın.")
+    if "sign in to confirm you" in low and "bot" in low:
+        return ("YouTube bu bağlantıdan doğrulama istedi. YouTube Hesabım sayfasından oturumu bağlayıp "
+                "yeniden deneyin.")
+    if "sign in to confirm your age" in low or "age-restricted" in low:
+        return "Bu video yaş sınırlı; indirmek için YouTube Hesabım sayfasından oturumu bağlayın."
     if "sign in to confirm" in low or "login required" in low or "private" in low:
         return "Bu içerik için YouTube oturumu gerekiyor. Hesap sayfasından bağlanın."
+    if "requested format is not available" in low:
+        return "Bu video için uygun bir biçim bulunamadı. Farklı bir kalite seçip yeniden deneyin."
+    if "ffmpeg" in low and ("not found" in low or "not installed" in low):
+        return "Dönüştürme aracı (ffmpeg) bulunamadı. Uygulamayı yeniden kurmayı deneyin."
+    if "http error 403" in low:
+        return "YouTube indirmeyi geçici olarak reddetti (403). Birkaç dakika sonra yeniden deneyin."
+    if "unable to download" in low and ("timed out" in low or "connection" in low):
+        return "Bağlantı hatası: YouTube'a ulaşılamadı. İnternet / proxy ayarlarınızı kontrol edin."
     if "proxy" in low or "tunnel connection failed" in low:
         return f"Proxy bağlantısı kurulamadı: {text[:160]}"
     return text
@@ -169,10 +182,14 @@ class DownloadWorker(QThread):
     saved = Signal(int, str)             # satır, son dosya yolu
     finished_all = Signal()
 
-    def __init__(self, jobs: list[dict], opts: dict, base_opts: dict | None = None, workers: int = 3):
+    def __init__(self, jobs: list[dict], opts: dict, base_opts: dict | None = None, workers: int = 3,
+                 account_opts: dict | None = None):
+        """base_opts: proxy gibi her istekte kullanılan seçenekler; account_opts: YouTube oturumu
+        (yalnızca içerik giriş gerektirdiğinde kullanılır)."""
         super().__init__()
         self.opts = opts
         self.base_opts = base_opts or {}
+        self.account_opts = account_opts or {}
         self.workers = max(1, workers)
         self._queue: queue.Queue = queue.Queue()
         self._lock = threading.Lock()
@@ -237,6 +254,7 @@ class DownloadWorker(QThread):
 
         opts = {
             **self.base_opts,
+            **(self.account_opts if job.get("use_account") else {}),
             "outtmpl": str(out_dir / f"{prefix}%(title)s.%(ext)s"),
             "noplaylist": True,
             "quiet": True,
@@ -254,7 +272,7 @@ class DownloadWorker(QThread):
             opts["ffmpeg_location"] = ff
 
         if fmt_kind == "mp3":
-            opts["format"] = "bestaudio/best"
+            opts["format"] = job.get("format_override") or "ba/b"
             pps = [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3",
                     "preferredquality": str(o["audio_quality"])},
                    {"key": "FFmpegMetadata", "add_metadata": True}]
@@ -266,40 +284,64 @@ class DownloadWorker(QThread):
         else:
             h = o["video_quality"]
             if h == "best":
-                fmt = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best"
+                fmt = "bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b"
             else:
-                fmt = (f"bestvideo[height<={h}][ext=mp4]+bestaudio[ext=m4a]/"
-                       f"bestvideo[height<={h}]+bestaudio/best[height<={h}]/best")
-            opts["format"] = fmt
+                fmt = (f"bv*[height<={h}][ext=mp4]+ba[ext=m4a]/bv*[height<={h}]+ba/"
+                       f"b[height<={h}]/bv*+ba/b")
+            opts["format"] = job.get("format_override") or fmt
             opts["merge_output_format"] = "mp4"
             opts["postprocessors"] = [{"key": "FFmpegMetadata", "add_metadata": True}]
         return opts
 
+    def _attempt(self, job: dict, ctx: dict):
+        with yt_dlp.YoutubeDL(self._build_opts(job, ctx)) as ydl:
+            if job.get("name"):
+                ydl.add_post_processor(SetTitlePP(job["name"]), when="pre_process")
+            elif job.get("clean"):
+                ydl.add_post_processor(CleanTitlePP(), when="pre_process")
+            ydl.download([job["url"]])
+
     def _run_job(self, job: dict):
+        """Bir öğeyi indirir. Başarısız olursa nedene göre farklı yollarla yeniden dener:
+        - oturum gerekiyorsa YouTube hesabıyla,
+        - oturumla sorun çıkıyorsa oturumsuz,
+        - istenen biçim yoksa tek dosyalı en iyi biçimle."""
         row = job["row"]
         if self._cancel:
             self.state.emit(row, "cancelled", "İptal edildi")
             return
         self.state.emit(row, "active", "Başlıyor…")
-        ctx = {"path": None}
-        try:
-            with yt_dlp.YoutubeDL(self._build_opts(job, ctx)) as ydl:
-                if job.get("name"):
-                    ydl.add_post_processor(SetTitlePP(job["name"]), when="pre_process")
-                elif job.get("clean"):
-                    ydl.add_post_processor(CleanTitlePP(), when="pre_process")
-                ydl.download([job["url"]])
-            if ctx["path"]:
-                self.saved.emit(row, ctx["path"])
-            self.state.emit(row, "done", "Tamamlandı")
-        except Cancelled:
-            self.state.emit(row, "cancelled", "İptal edildi")
-        except Exception as exc:
-            if self._cancel:
+        attempts = [dict(job, use_account=False)]
+        last_exc = None
+        while attempts:
+            current = attempts.pop(0)
+            ctx = {"path": None}
+            try:
+                self._attempt(current, ctx)
+                if ctx["path"]:
+                    self.saved.emit(row, ctx["path"])
+                self.state.emit(row, "done", "Tamamlandı")
+                return
+            except Cancelled:
                 self.state.emit(row, "cancelled", "İptal edildi")
-            else:
-                log.exception("İndirme hatası: %s", job["url"])
-                self.state.emit(row, "error", _clean_error(exc)[:200])
+                return
+            except Exception as exc:
+                if self._cancel:
+                    self.state.emit(row, "cancelled", "İptal edildi")
+                    return
+                last_exc = exc
+                low = str(exc).lower()
+                log.warning("İndirme denemesi başarısız (%s): %s", job["url"], exc)
+                needs_login = any(k in low for k in ("sign in", "login required", "private video", "age",
+                                                     "members-only", "confirm you"))
+                if needs_login and self.account_opts and not current.get("use_account"):
+                    attempts.append(dict(current, use_account=True))
+                    self.state.emit(row, "active", "YouTube hesabıyla yeniden deneniyor…")
+                elif "requested format is not available" in low and not current.get("format_override"):
+                    attempts.append(dict(current, format_override="b"))
+                    self.state.emit(row, "active", "Farklı biçimle yeniden deneniyor…")
+        log.error("İndirme hatası: %s", job["url"], exc_info=last_exc)
+        self.state.emit(row, "error", _clean_error(last_exc)[:240])
 
     def run(self):
         running = set()

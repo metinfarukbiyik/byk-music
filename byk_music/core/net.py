@@ -77,6 +77,12 @@ def ydl_base_opts(settings, with_account: bool = True) -> dict:
     return opts
 
 
+def account_opts(settings) -> dict:
+    """Yalnızca YouTube oturumu seçenekleri (çerezler)."""
+    base = ydl_base_opts(settings, with_account=False)
+    return {k: v for k, v in ydl_base_opts(settings).items() if k not in base}
+
+
 def url_opener(settings) -> urllib.request.OpenerDirector:
     """Güncelleyici ve bağlantı testi için proxy ayarına uygun urllib açıcısı."""
     proxy = proxy_url(settings)

@@ -21,7 +21,7 @@ from ..core.downloader import DownloadWorker, InfoWorker, MultiInfoWorker, ffmpe
 from ..core.history import History, reveal_in_folder
 from ..core.links import analyze
 from ..core.naming import clean_title, safe_filename
-from ..core.net import ConnectionTestWorker, url_opener, ydl_base_opts
+from ..core.net import ConnectionTestWorker, account_opts, url_opener, ydl_base_opts
 from ..core.settings import Settings, config_dir
 from ..core.watcher import BrowserWatcher
 from .account import AccountPage
@@ -995,6 +995,8 @@ class MainWindow(QMainWindow):
             bar.setValue(0)
         if state == "done" and row["path"]:
             msg = Path(row["path"]).name
+        row["error"] = msg if state == "error" else ""
+        row["badge"].setToolTip(msg if state == "error" else "")
         detail.setText(msg)
         detail.setToolTip(msg)
         # indirme başladıktan sonra ad değiştirilemez
@@ -1088,7 +1090,8 @@ class MainWindow(QMainWindow):
         }
         self._batch = rows
         self._cancelled = False
-        self.dl_worker = DownloadWorker(jobs, opts, ydl_base_opts(s), workers=s["concurrent"])
+        self.dl_worker = DownloadWorker(jobs, opts, ydl_base_opts(s, with_account=False), workers=s["concurrent"],
+                                        account_opts=account_opts(s))
         self.dl_worker.progress.connect(self._on_progress)
         self.dl_worker.state.connect(self._on_state)
         self.dl_worker.saved.connect(lambda r, p: self.rows[r].__setitem__("path", p))
@@ -1343,11 +1346,14 @@ class MainWindow(QMainWindow):
                         action=("Klasörü aç", self.open_dir), system=True)
         elif ok == 0:
             self._set_status("✕ Başarısız", "error")
-            self.notify("İndirme başarısız", f"{err} öğe indirilemedi.", "error",
-                        action=("Günlüğü göster", self.open_developer), system=True)
+            reason = next((r["error"] for r in rows if r.get("error")), "")
+            what = "İndirilemedi" if err == 1 else f"{err} öğe indirilemedi"
+            self.notify("İndirme başarısız", f"{what}: {reason}" if reason else what, "error",
+                        action=("Yeniden dene", self.retry_failed), system=True)
         else:
             self._set_status("Tamamlandı (hatalı)", "processing")
-            self.notify("İndirme tamamlandı", f"{ok} başarılı · {err} hatalı. Hatalıları yeniden deneyebilirsiniz.",
+            reason = next((r["error"] for r in rows if r.get("error")), "")
+            self.notify("İndirme tamamlandı", f"{ok} başarılı · {err} hatalı. {reason}".strip(),
                         "warning", action=("Yeniden dene", self.retry_failed), system=True)
         QTimer.singleShot(6000, lambda: self.dl_worker is None and self._set_status("Hazır", "neutral"))
         if self.update_info and not self._update_prompted:

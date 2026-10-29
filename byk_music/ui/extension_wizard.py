@@ -6,7 +6,7 @@ eklenti klasörünü açar, klasör yolunu panoya kopyalar. Eklenti yüklendiği
 """
 import sys
 
-from PySide6.QtCore import Qt, QUrl, Signal
+from PySide6.QtCore import Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (QButtonGroup, QDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QStackedWidget,
                                QVBoxLayout, QWidget)
@@ -161,9 +161,9 @@ class ExtensionWizard(QDialog):
         sub2.setObjectName("fieldLabel")
         lay.addSpacing(4)
         lay.addWidget(sub2)
-        for text in ("Eklenti dosyalarını hazırlar ve klasör yolunu panoya kopyalar",
-                     "Seçtiğiniz tarayıcıda <b>uzantılar sayfasını</b> açar",
-                     "Eklenti klasörünü yanında açar; sürükleyip bırakmanız yeterli olur"):
+        for text in ("Eklenti dosyalarını hazırlar ve eklenti klasörünü açar",
+                     "Seçtiğiniz tarayıcıyı öne getirir ve <b>uzantılar sayfasının adresini</b> panoya kopyalar",
+                     "Kalan birkaç adımı ekranda tek tek gösterir; kurulumu kendiliğinden algılar"):
             lay.addWidget(_row("gesture-tap", ACCENT, text))
         lay.addStretch()
         note = QLabel("Tarayıcılar güvenlik gereği eklentilerin programlar tarafından sessizce kurulmasına izin "
@@ -224,57 +224,82 @@ class ExtensionWizard(QDialog):
             item = lay.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
-        name = BROWSERS[self.browser][0]
+        name, address = BROWSERS[self.browser]
         firefox = self.browser == "firefox"
 
-        t = QLabel(f"{name} için son adım")
+        t = QLabel(f"{name} için son adımlar")
         t.setObjectName("h2")
         lay.addWidget(t)
 
-        auto = QFrame()
-        auto.setObjectName("autoBox")
-        al = QVBoxLayout(auto)
-        al.setContentsMargins(14, 10, 14, 10)
-        al.setSpacing(6)
-        al.addWidget(_row("check-circle", SUCCESS, "Eklenti dosyaları hazırlandı, klasör yolu panoya kopyalandı"))
-        al.addWidget(_row("check-circle", SUCCESS if self._page_opened else "#98A2B3",
-                          f"{name} uzantılar sayfası açıldı" if self._page_opened
-                          else f"{name} açılamadı; adres çubuğuna <b>{BROWSERS[self.browser][1]}</b> yazın"))
-        al.addWidget(_row("check-circle", SUCCESS, "Eklenti klasörü yanında açıldı"))
+        # uzantılar sayfasının adresi: büyük, kopyalanabilir kutu
+        addr = QFrame()
+        addr.setObjectName("addressBox")
+        al = QHBoxLayout(addr)
+        al.setContentsMargins(14, 10, 10, 10)
+        al.setSpacing(10)
+        ic = QLabel()
+        ic.setPixmap(pixmap("web", 20, ACCENT))
+        texts = QVBoxLayout()
+        texts.setSpacing(2)
+        k = QLabel("UZANTILAR SAYFASININ ADRESİ  ·  PANOYA KOPYALANDI")
+        k.setObjectName("fieldLabel")
+        v = QLabel(address)
+        v.setObjectName("addressText")
+        v.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        texts.addWidget(k)
+        texts.addWidget(v)
+        copy_addr = QPushButton("Kopyala")
+        copy_addr.setObjectName("smallBtn")
+        set_icon(copy_addr, "content-copy", size=14)
+        copy_addr.clicked.connect(lambda: self._copy(address, copy_addr))
+        al.addWidget(ic)
+        al.addLayout(texts, 1)
+        al.addWidget(copy_addr)
+        lay.addWidget(addr)
+
+        sub = QLabel("ADIM ADIM")
+        sub.setObjectName("fieldLabel")
+        lay.addWidget(sub)
+        open_keys = "⌘L" if sys.platform == "darwin" else "Ctrl+L"
+        paste_keys = "⌘V" if sys.platform == "darwin" else "Ctrl+V"
+        first = (f"{name} penceresinde adres çubuğuna tıklayın (<b>{open_keys}</b>), adresi yapıştırın "
+                 f"(<b>{paste_keys}</b>) ve <b>Enter</b>'a basın.")
+        if firefox:
+            steps = [first,
+                     "Açılan sayfada <b>Geçici Eklenti Yükle…</b> düğmesine tıklayın.",
+                     "Yanında açılan <b>browser-extension</b> klasöründeki <b>manifest.json</b> dosyasını seçin.",
+                     "Not: Firefox geçici eklentileri tarayıcı kapanınca kaldırır; Chrome ya da Edge önerilir."]
+        else:
+            steps = [first,
+                     "Sayfanın sağ üst köşesindeki <b>Geliştirici modu</b> anahtarını açın.",
+                     "Yanında açılan <b>browser-extension</b> klasörünü tarayıcı sayfasının üzerine "
+                     "<b>sürükleyip bırakın</b>. Sürükleyemezseniz <b>Paketlenmemiş öğe yükle</b> düğmesine "
+                     "tıklayıp klasörü seçin.",
+                     "İsterseniz araç çubuğundaki yapboz simgesinden BYK Music'i sabitleyin."]
+        for i, html in enumerate(steps, 1):
+            lay.addWidget(_numbered(i, html))
+
         quick = QHBoxLayout()
-        reopen = QPushButton("Sayfayı yeniden aç")
-        set_icon(reopen, "web", size=14)
+        reopen = QPushButton("Tarayıcıyı öne getir")
+        set_icon(reopen, BROWSER_ICONS.get(self.browser, "web"), size=14)
         reopen.clicked.connect(lambda: open_extensions_page(self.browser))
         folder = QPushButton("Klasörü göster")
         set_icon(folder, "folder-open-outline", size=14)
         folder.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.folder))))
-        copy = QPushButton("Yolu kopyala")
-        set_icon(copy, "content-copy", size=14)
-        copy.clicked.connect(lambda: QGuiApplication.clipboard().setText(str(self.folder)))
-        for b in (reopen, folder, copy):
+        copy_path = QPushButton("Klasör yolunu kopyala")
+        set_icon(copy_path, "content-copy", size=14)
+        copy_path.clicked.connect(lambda: self._copy(str(self.folder), copy_path))
+        for b in (reopen, folder, copy_path):
             b.setObjectName("smallBtn")
             quick.addWidget(b)
         quick.addStretch()
-        al.addLayout(quick)
-        lay.addWidget(auto)
+        lay.addLayout(quick)
 
-        sub = QLabel("ŞİMDİ TARAYICIDA")
-        sub.setObjectName("fieldLabel")
-        lay.addWidget(sub)
-        if firefox:
-            steps = ["Açılan sayfada <b>Geçici Eklenti Yükle…</b> düğmesine tıklayın.",
-                     f"Açılan pencerede <b>browser-extension</b> klasöründeki <b>manifest.json</b> dosyasını seçin "
-                     f"({PASTE}).",
-                     "Not: Firefox geçici eklentileri tarayıcı kapanınca kaldırır; Chrome ya da Edge önerilir."]
-        else:
-            steps = ["Sayfanın sağ üst köşesindeki <b>Geliştirici modu</b> anahtarını açın.",
-                     "Yanında açılan <b>browser-extension</b> klasörünü tarayıcı sayfasının üzerine "
-                     "<b>sürükleyip bırakın</b>.",
-                     f"Sürükleyemezseniz <b>Paketlenmemiş öğe yükle</b> (Load unpacked) düğmesine tıklayıp klasörü "
-                     f"seçin; yol panoda, {PASTE}.",
-                     "İsterseniz araç çubuğundaki yapboz simgesinden BYK Music'i sabitleyin."]
-        for i, html in enumerate(steps, 1):
-            lay.addWidget(_numbered(i, html))
+        note = QLabel("Tarayıcılar güvenlik gereği uzantılar sayfasının başka programlarca açılmasına izin vermez; "
+                      "bu yüzden adresi sizin yapıştırmanız gerekir.")
+        note.setObjectName("small")
+        note.setWordWrap(True)
+        lay.addWidget(note)
         lay.addStretch()
 
         wait = QHBoxLayout()
@@ -286,6 +311,12 @@ class ExtensionWizard(QDialog):
         wait.addWidget(self.spinner)
         wait.addWidget(wl, 1)
         lay.addLayout(wait)
+
+    def _copy(self, text: str, button: QPushButton):
+        QGuiApplication.clipboard().setText(text)
+        old = button.text()
+        button.setText("Kopyalandı ✓")
+        QTimer.singleShot(1500, lambda: button.setText(old))
 
     def _page_done(self) -> QWidget:
         w = QWidget()
@@ -355,9 +386,9 @@ class ExtensionWizard(QDialog):
                 return
             self.browser = checked.property("key")
             self.folder = sync_extension_files()
-            QGuiApplication.clipboard().setText(str(self.folder))
-            self._page_opened = open_extensions_page(self.browser)
+            open_extensions_page(self.browser)  # tarayıcıyı öne getirir (iç sayfa engellenebilir)
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.folder)))
+            QGuiApplication.clipboard().setText(BROWSERS[self.browser][1])
             self._fill_install()
             self._go(2)
             self.raise_()
@@ -390,4 +421,3 @@ class ExtensionWizard(QDialog):
             self.raise_()
             self.activateWindow()
 
-    _page_opened = False
