@@ -15,6 +15,13 @@
     .dot.ok { background: #12b76a; } .dot.err { background: #f04438; }
     label { display: flex; align-items: center; gap: 8px; }
     select { margin-left: auto; padding: 4px 6px; border: 1px solid #d0d5dd; border-radius: 6px; }
+    .session { display: grid; gap: 6px; padding: 12px; background: #fff; border: 1px solid #e3e8ef; border-radius: 10px; }
+    .session span { color: #64748b; font-size: 12px; line-height: 1.4; }
+    .session button { padding: 8px 10px; border: 0; border-radius: 8px; background: #1f4fd8; color: #fff; font: 600 12px inherit; cursor: pointer; }
+    .session button:hover { background: #1a43b8; }
+    .session button:disabled { background: #a4bcfd; cursor: default; }
+    .session small { font-size: 11px; }
+    .session small.ok { color: #067647; } .session small.err { color: #b42318; }
     footer { padding: 10px 16px; color: #64748b; font-size: 11px; border-top: 1px solid #e3e8ef; }
     a { color: #1f4fd8; text-decoration: none; }
   </style>
@@ -26,6 +33,12 @@
   </header>
   <main>
     <div class="status"><span class="dot" id="dot"></span><span id="state">Uygulama denetleniyor…</span></div>
+    <section class="session">
+      <b>YouTube oturumu</b>
+      <span>Beğendiğiniz videolar ve listeleriniz için bu tarayıcıdaki YouTube oturumunu BYK Music'e aktarın.</span>
+      <button id="sync">Oturumu BYK Music'e aktar</button>
+      <small id="syncState"></small>
+    </section>
     <label><input type="checkbox" id="detect"> Video açılınca indirme balonu göster</label>
     <label><input type="checkbox" id="showButton"> Sayfada MP3 / MP4 düğmelerini göster</label>
   </main>

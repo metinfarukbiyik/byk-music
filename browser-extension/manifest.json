@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "BYK Music – YouTube İndirme Yardımcısı",
   "short_name": "BYK Music",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "YouTube'da izlediğiniz videoyu tek tıkla BYK Music masaüstü uygulamasına MP3 veya MP4 olarak gönderir.",
   "author": "Metin Faruk Bıyık (biyik.dev)",
   "homepage_url": "https://biyik.dev",
@@ -12,26 +12,48 @@
     "48": "icons/48.png",
     "128": "icons/128.png"
   },
-  "permissions": ["storage"],
-  "host_permissions": ["http://127.0.0.1:47815/*"],
+  "permissions": [
+    "storage",
+    "cookies"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:47815/*",
+    "https://*.youtube.com/*"
+  ],
   "background": {
     "service_worker": "background.js",
-    "scripts": ["background.js"]
+    "scripts": [
+      "background.js"
+    ]
   },
   "content_scripts": [
     {
-      "matches": ["https://www.youtube.com/*", "https://music.youtube.com/*", "https://m.youtube.com/*"],
-      "js": ["content.js"],
-      "css": ["content.css"],
+      "matches": [
+        "https://www.youtube.com/*",
+        "https://music.youtube.com/*",
+        "https://m.youtube.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
       "run_at": "document_idle"
     }
   ],
   "action": {
     "default_title": "BYK Music",
     "default_popup": "popup.html",
-    "default_icon": { "16": "icons/16.png", "32": "icons/32.png" }
+    "default_icon": {
+      "16": "icons/16.png",
+      "32": "icons/32.png"
+    }
   },
   "browser_specific_settings": {
-    "gecko": { "id": "byk-music@biyik.dev", "strict_min_version": "121.0" }
+    "gecko": {
+      "id": "byk-music@biyik.dev",
+      "strict_min_version": "121.0"
+    }
   }
 }

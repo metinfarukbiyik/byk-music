@@ -21,8 +21,9 @@ DEFAULTS = {
     "show_bubble": True,        # YouTube'da video algılanınca indirme balonu göster
     "proxy_mode": "system",     # system | none | custom
     "proxy_url": "",            # http://kullanıcı:parola@sunucu:port  ya da  socks5://sunucu:port
-    "account_source": "",       # "" (bağlı değil) | browser | file
-    "account_browser": "firefox",
+    "account_source": "",       # "" (bağlı değil) | extension | browser | file
+    "account_method": "extension",
+    "account_browser": "chrome",
     "account_profile": "",
     "cookies_file": "",
 }

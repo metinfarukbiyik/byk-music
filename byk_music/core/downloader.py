@@ -1,5 +1,6 @@
 import logging
 import queue
+import re
 import shutil
 import threading
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
@@ -139,11 +140,16 @@ class MultiInfoWorker(QThread):
 def _clean_error(exc: Exception) -> str:
     text = str(exc).replace("ERROR: ", "").strip() or exc.__class__.__name__
     low = text.lower()
+    missing = re.search(r"could not find (\w+) cookies database", low)
+    if missing:
+        return (f"{missing.group(1).capitalize()} tarayıcısında kayıtlı bir profil bulunamadı. "
+                "Tarayıcı eklentisiyle oturum aktarmayı ya da başka bir tarayıcı seçmeyi deneyin.")
     if "could not copy" in low and "cookie" in low:
-        return "Tarayıcı çerezleri okunamadı. Tarayıcıyı tamamen kapatıp yeniden deneyin."
+        return ("Tarayıcı açıkken çerezleri okunamadı. Tarayıcıyı tamamen kapatıp yeniden deneyin "
+                "ya da “Eklenti ile aktar” yöntemini kullanın.")
     if "failed to decrypt" in low or "app-bound" in low:
-        return ("Bu tarayıcının çerezleri şifreli olduğu için okunamadı. "
-                "Firefox kullanın ya da cookies.txt dosyası seçin.")
+        return ("Bu tarayıcı çerezlerini şifreli tuttuğu için doğrudan okunamıyor. "
+                "“Eklenti ile aktar” yöntemini kullanın.")
     if "sign in to confirm" in low or "login required" in low or "private" in low:
         return "Bu içerik için YouTube oturumu gerekiyor. Hesap sayfasından bağlanın."
     if "proxy" in low or "tunnel connection failed" in low:

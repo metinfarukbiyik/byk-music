@@ -3,14 +3,50 @@
 Uygulama hiçbir zaman kullanıcı adı ya da parola görmez veya saklamaz; YouTube oturumu,
 kullanıcının kendi tarayıcısında açık olan oturumun çerezleri okunarak kullanılır.
 """
+import os
+import sys
 import time
 import urllib.request
+from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
 
-BROWSERS = [("Firefox", "firefox"), ("Google Chrome", "chrome"), ("Microsoft Edge", "edge"),
+BROWSERS = [("Google Chrome", "chrome"), ("Microsoft Edge", "edge"), ("Firefox", "firefox"),
             ("Brave", "brave"), ("Opera", "opera"), ("Vivaldi", "vivaldi"), ("Chromium", "chromium"),
             ("Safari", "safari")]
+
+
+def _browser_dirs() -> dict[str, list[Path]]:
+    home = Path.home()
+    if sys.platform.startswith("win"):
+        local = Path(os.environ.get("LOCALAPPDATA", home / "AppData" / "Local"))
+        roaming = Path(os.environ.get("APPDATA", home / "AppData" / "Roaming"))
+        return {
+            "chrome": [local / "Google" / "Chrome" / "User Data"],
+            "edge": [local / "Microsoft" / "Edge" / "User Data"],
+            "firefox": [roaming / "Mozilla" / "Firefox" / "Profiles"],
+            "brave": [local / "BraveSoftware" / "Brave-Browser" / "User Data"],
+            "opera": [roaming / "Opera Software" / "Opera Stable"],
+            "vivaldi": [local / "Vivaldi" / "User Data"],
+            "chromium": [local / "Chromium" / "User Data"],
+        }
+    support = home / "Library" / "Application Support"
+    return {
+        "chrome": [support / "Google" / "Chrome"],
+        "edge": [support / "Microsoft Edge"],
+        "firefox": [support / "Firefox" / "Profiles"],
+        "brave": [support / "BraveSoftware" / "Brave-Browser"],
+        "opera": [support / "com.operasoftware.Opera"],
+        "vivaldi": [support / "Vivaldi"],
+        "chromium": [support / "Chromium"],
+        "safari": [home / "Library" / "Containers" / "com.apple.Safari", home / "Library" / "Cookies"],
+    }
+
+
+def installed_browsers() -> list[tuple[str, str]]:
+    """Bu bilgisayarda profili bulunan tarayıcılar."""
+    dirs = _browser_dirs()
+    return [(label, key) for label, key in BROWSERS if any(p.exists() for p in dirs.get(key, []))]
 
 
 def proxy_url(settings) -> str | None:
@@ -33,6 +69,9 @@ def ydl_base_opts(settings, with_account: bool = True) -> dict:
         browser = settings["account_browser"]
         profile = settings["account_profile"].strip() or None
         opts["cookiesfrombrowser"] = (browser, profile, None, None)
+    elif with_account and settings["account_source"] == "extension":
+        from .bridge import cookie_file  # döngüsel içe aktarmayı önlemek için burada
+        opts["cookiefile"] = str(cookie_file())
     elif with_account and settings["account_source"] == "file" and settings["cookies_file"]:
         opts["cookiefile"] = settings["cookies_file"]
     return opts

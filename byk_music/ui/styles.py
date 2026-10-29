@@ -103,10 +103,26 @@ QLabel#heroName {{ font-size: 22px; font-weight: 800; }}
 QFrame#devHero QLabel#heroSub {{ color: {SIDEBAR_TEXT}; font-size: 13px; }}
 QFrame#devHero QLabel#heroAvatar {{ background: {ACCENT}; color: white; border: 3px solid #3B5EA8; border-radius: 38px;
                      font-size: 26px; font-weight: 800; }}
-QFrame#devHero QLabel#heroChipNew {{ background: {SUCCESS}; color: white; border-radius: 10px; padding: 3px 10px;
+QFrame#devHero QLabel#heroChipNew {{ background: {SUCCESS}; color: white; border-radius: 8px; padding: 3px 10px;
                                      font-size: 11px; font-weight: 800; }}
-QFrame#devHero QLabel#heroChip {{ background: rgba(255, 255, 255, 34); color: #DCE6FF; border-radius: 10px; padding: 3px 10px;
+QFrame#devHero QLabel#heroChip {{ background: rgba(255, 255, 255, 34); color: #DCE6FF; border-radius: 8px; padding: 3px 10px;
                    font-size: 11px; font-weight: 700; }}
+QLabel#stepNum {{ background: {ACCENT_SOFT}; color: {ACCENT}; border-radius: 11px; font-size: 11px; font-weight: 800; }}
+QPushButton#contactChip {{ background: {SURFACE}; border: 1px solid #D0D5DD; border-radius: 12px; padding: 5px 12px;
+                           font-size: 12px; font-weight: 600; color: #344054; text-align: left; }}
+QPushButton#contactChip:hover {{ border-color: {ACCENT}; color: {ACCENT}; background: #FAFBFF; }}
+QPushButton#primarySm, QPushButton#whatsappSm {{ border-radius: 7px; padding: 6px 14px; font-size: 12px; color: white; }}
+QPushButton#primarySm {{ background: {ACCENT}; border: 1px solid {ACCENT}; }}
+QPushButton#primarySm:hover {{ background: {ACCENT_HOVER}; }}
+QPushButton#whatsappSm {{ background: #25D366; border: 1px solid #25D366; }}
+QPushButton#whatsappSm:hover {{ background: #1EBE5A; }}
+QPushButton#whatsappSm:disabled {{ background: #A6E9C0; border-color: #A6E9C0; }}
+QLabel#avatarSm {{ background: {ACCENT}; color: white; border-radius: 23px; font-size: 16px; font-weight: 800; }}
+QFrame#devHero QLabel#heroAvatarSm {{ background: {ACCENT}; color: white; border: 2px solid #3B5EA8; border-radius: 27px;
+                                      font-size: 18px; font-weight: 800; }}
+QFrame#devHero QLabel#heroNameSm {{ font-size: 17px; font-weight: 800; }}
+QFrame#updateBanner {{ background: {ACCENT_SOFT}; border: none; border-bottom: 1px solid #C7D7FE; }}
+QLabel#bannerText {{ color: #1E3A8A; }}
 QFrame#loadingHead {{ background: transparent; border: none; border-bottom: 1px solid {BORDER}; }}
 QFrame#bubble {{ background: {SURFACE}; border: 1px solid #D0D5DD; border-radius: 14px; }}
 QLabel#bubbleTitle {{ font-size: 14px; font-weight: 700; }}

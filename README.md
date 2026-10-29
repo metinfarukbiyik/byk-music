@@ -20,8 +20,9 @@ Geliştirici: **Metin Faruk Bıyık** · [biyik.dev](https://biyik.dev) · metin
   listede çift tıklanarak değiştirilebilir ve MP3 etiketine (sanatçı / başlık) yazılır
 - **Akıllı bağlantı algılama:** YouTube'un otomatik "Mix / Radyo" listeleri (`&list=RD…`) yerine yalnızca video alınır;
   gerçek bir liste içeren video bağlantılarında "yalnızca video / tüm liste" seçimi sunulur
-- **YouTube Hesabım:** tarayıcı oturumu ya da cookies.txt ile bağlanıp beğenilen videolar, "Daha sonra izle" ve
-  oynatma listelerinize erişim (uygulama parola görmez ve saklamaz)
+- **YouTube Hesabım:** tarayıcı eklentisinden tek tıkla oturum aktarma (önerilen), tarayıcıdan okuma ya da
+  cookies.txt ile bağlanıp beğenilen videolar, "Daha sonra izle" ve oynatma listelerinize erişim
+  (uygulama parola görmez ve saklamaz)
 - **Tarayıcı eklentisi ve indirme balonu:** YouTube'da açılan video algılanır, ekranın kenarında MP3 / MP4 indirme
   balonu çıkar; bağlantı kopyalamadan listeye eklenip indirilir
 - **Proxy desteği:** sistem ayarı, doğrudan bağlantı ya da özel HTTP / HTTPS / SOCKS5 proxy
@@ -48,8 +49,8 @@ Geliştirici: **Metin Faruk Bıyık** · [biyik.dev](https://biyik.dev) · metin
 3. Commit mesajlarından Türkçe sürüm notu üretir (commit'in ilk satırı başlık, `- ` ile başlayan satırlar madde olur)
 4. Hepsini yeni bir GitHub Release olarak yayınlar
 
-Kurulu uygulamalar açılışta ve açıkken saatte bir yeni sürümü denetler, bildirim gösterir,
-güncellemeyi indirir ve kurar. Ana/ara sürümü yükseltmek için `byk_music/__init__.py` dosyasını düzenleyin
+Kurulu uygulamalar açılışta ve açıkken yarım saatte bir yeni sürümü denetler; yeni sürüm bulununca
+güncelleme penceresi kendiliğinden açılır ve üst çubuğun altında kalıcı bir güncelleme şeridi görünür. Ana/ara sürümü yükseltmek için `byk_music/__init__.py` dosyasını düzenleyin
 (örn. `1.1.0`).
 
 ### Kod imzalama (Windows)

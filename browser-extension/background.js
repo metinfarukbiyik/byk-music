@@ -10,7 +10,19 @@ async function call(path, body) {
   return res.json();
 }
 
+// Yalnızca kullanıcı açılır penceredeki "oturumu aktar" düğmesine bastığında çağrılır.
+function youtubeCookies() {
+  return new Promise((resolve) => chrome.cookies.getAll({ domain: "youtube.com" }, (list) => resolve(list || [])));
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg.type === "cookies") {
+    youtubeCookies()
+      .then((cookies) => call("/cookies", { cookies }))
+      .then((data) => sendResponse({ ok: !!data.ok, data }))
+      .catch(() => sendResponse({ ok: false, offline: true }));
+    return true;
+  }
   const route = { ping: ["/ping"], detect: ["/detect", msg.payload], add: ["/add", msg.payload] }[msg.type];
   if (!route) return false;
   call(...route)

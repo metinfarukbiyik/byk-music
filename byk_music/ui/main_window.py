@@ -51,7 +51,7 @@ VIDEO_QUALITIES = [("En iyi", "best"), ("2160p (4K)", "2160"), ("1440p", "1440")
                    ("720p", "720"), ("480p", "480"), ("360p", "360")]
 AUDIO_QUALITIES = ["320", "256", "192", "128"]
 PAGE_DOWNLOAD, PAGE_HISTORY, PAGE_ACCOUNT, PAGE_SETTINGS, PAGE_CONTACT = range(5)
-UPDATE_INTERVAL_MS = 60 * 60 * 1000  # çalışırken saatte bir güncelleme denetle
+UPDATE_INTERVAL_MS = 30 * 60 * 1000  # çalışırken yarım saatte bir güncelleme denetle
 
 
 def extension_source() -> Path:
@@ -83,6 +83,8 @@ class MainWindow(QMainWindow):
         self.rows: list[dict] = []
         self.update_info = None
         self._pending_update = None   # indirilmiş, kurulmayı bekleyen güncelleme dosyası
+        self._update_dialog_open = False
+        self._update_prompted = False  # bu oturumda yeni sürüm penceresi gösterildi mi
         self._installing = False
         self._last_clip = ""
         self._new_history = 0
@@ -110,10 +112,11 @@ class MainWindow(QMainWindow):
         cl.setContentsMargins(0, 0, 0, 0)
         cl.setSpacing(0)
         cl.addWidget(self._build_topbar())
+        cl.addWidget(self._build_update_banner())
         self.pages = QStackedWidget()
         self.pages.addWidget(self._build_download_page())
         self.pages.addWidget(self._build_history_page())
-        self.account_page = AccountPage(self.settings, self.notify, self.load_url)
+        self.account_page = AccountPage(self.settings, self.notify, self.load_url, self.install_extension)
         self.pages.addWidget(self.account_page)
         self.pages.addWidget(self._build_settings_page())
         self.pages.addWidget(ContactPage(self.notify))
@@ -132,6 +135,7 @@ class MainWindow(QMainWindow):
         self.bridge = BrowserBridge(self)
         self.bridge.detected.connect(self._on_detected)
         self.bridge.add_requested.connect(self._on_add_requested)
+        self.bridge.cookies_received.connect(self._on_cookies_received)
         if self.settings["browser_bridge"]:
             self.bridge.start()
         self._load_settings_into_ui()
@@ -250,6 +254,65 @@ class MainWindow(QMainWindow):
         lay.addWidget(field("Kayıt klasörü", dir_row), 1)
         lay.addWidget(field("Durum", status_wrap))
         return bar
+
+    def _build_update_banner(self) -> QFrame:
+        """Yeni sürüm bulunduğunda üst çubuğun altında kalıcı olarak görünen şerit."""
+        bar = QFrame()
+        bar.setObjectName("updateBanner")
+        lay = QHBoxLayout(bar)
+        lay.setContentsMargins(28, 8, 20, 8)
+        lay.setSpacing(10)
+        ic = QLabel()
+        ic.setPixmap(icon("update", ACCENT).pixmap(18, 18))
+        self.banner_text = QLabel()
+        self.banner_text.setObjectName("bannerText")
+        details = QPushButton("Yenilikler")
+        details.setObjectName("link")
+        details.setCursor(Qt.PointingHandCursor)
+        details.clicked.connect(self._on_update_nav)
+        self.banner_btn = QPushButton()
+        self.banner_btn.setObjectName("primarySm")
+        self.banner_btn.setCursor(Qt.PointingHandCursor)
+        self.banner_btn.clicked.connect(self._banner_action)
+        close = QPushButton()
+        close.setObjectName("toastClose")
+        close.setFixedSize(22, 22)
+        close.setIcon(icon("close", "#98A2B3"))
+        close.setToolTip("Bu oturumda gizle")
+        close.clicked.connect(bar.hide)
+        lay.addWidget(ic)
+        lay.addWidget(self.banner_text, 1)
+        lay.addWidget(details)
+        lay.addWidget(self.banner_btn)
+        lay.addWidget(close)
+        bar.hide()
+        self.update_banner = bar
+        return bar
+
+    def _refresh_banner(self, progress: int | None = None):
+        if not self.update_info:
+            self.update_banner.hide()
+            return
+        v = self.update_info["version"]
+        if self._pending_update:
+            self.banner_text.setText(f"<b>BYK Music v{v}</b> kurulmaya hazır. Yeniden başlatınca yeni sürüm açılır.")
+            self.banner_btn.setText("Yeniden Başlat")
+            set_icon(self.banner_btn, "restart", "#FFFFFF", 15)
+        elif progress is not None:
+            self.banner_text.setText(f"<b>BYK Music v{v}</b> indiriliyor… %{progress}")
+            self.banner_btn.setText("Ayrıntılar")
+            set_icon(self.banner_btn, "download", "#FFFFFF", 15)
+        else:
+            self.banner_text.setText(f"<b>Yeni sürüm: BYK Music v{v}</b> · kurulu sürüm v{__version__}")
+            self.banner_btn.setText("Şimdi Güncelle")
+            set_icon(self.banner_btn, "download", "#FFFFFF", 15)
+        self.update_banner.show()
+
+    def _banner_action(self):
+        if self._pending_update:
+            self._install_pending(relaunch=True)
+        else:
+            self._prompt_update(auto=True)
 
     def _build_download_page(self) -> QWidget:
         page = QWidget()
@@ -531,7 +594,7 @@ class MainWindow(QMainWindow):
             ("notify_system", "Uygulama arka plandayken sistem bildirimi göster", ""),
             ("clipboard_watch", "Panodaki YouTube bağlantısını otomatik algıla",
              "Uygulamaya geri döndüğünüzde kopyaladığınız bağlantı kutuya eklenir."),
-            ("auto_update", "Güncellemeleri otomatik denetle", "Açılışta ve uygulama açıkken saatte bir denetlenir."),
+            ("auto_update", "Güncellemeleri otomatik denetle", "Açılışta ve uygulama açıkken yarım saatte bir denetlenir; yeni sürüm bulununca güncelleme penceresi açılır."),
             ("auto_install", "Güncellemeleri arka planda indir ve kur",
              "Yeni sürüm indirildiğinde hemen ya da uygulama kapanırken kurulur."),
         ])
@@ -1138,6 +1201,12 @@ class MainWindow(QMainWindow):
         self._seen_urls.add(item["url"])
         self.bubble.show_item({**item, "title": self._display_name(item["title"])}, self.settings["format"])
 
+    def _on_cookies_received(self, path: str, count: int):
+        self._bring_front()
+        self._goto(PAGE_ACCOUNT)
+        self.notify("YouTube oturumu aktarıldı", "Kitaplığınız yükleniyor…", "success")
+        self.account_page.on_cookies_received(path, count)
+
     def _on_add_requested(self, item: dict):
         self.bubble.dismiss()
         self.quick_add(item, item.get("format"))
@@ -1238,6 +1307,8 @@ class MainWindow(QMainWindow):
             self.notify("İndirme tamamlandı", f"{ok} başarılı · {err} hatalı. Hatalıları yeniden deneyebilirsiniz.",
                         "warning", action=("Yeniden dene", self.retry_failed), system=True)
         QTimer.singleShot(6000, lambda: self.dl_worker is None and self._set_status("Hazır", "neutral"))
+        if self.update_info and not self._update_prompted:
+            QTimer.singleShot(2500, lambda: self.dl_worker is None and self._prompt_update(auto=True))
         QApplication.alert(self)
 
     # ============================================================= geçmiş
@@ -1339,18 +1410,39 @@ class MainWindow(QMainWindow):
         if self.update_info and self.update_info["version"] == info["version"]:
             return  # bu sürüm zaten işleniyor
         self.update_info = info
+        self._update_prompted = False
         self.nav_update.set_badge("Yeni", "success")
-        if self._can_self_update() and self.settings["auto_install"]:
-            self.notify("Yeni sürüm bulundu", f"v{info['version']} arka planda indiriliyor…", "info", system=True)
-            self._download_update()
-        else:
-            self.notify(f"Yeni sürüm: v{info['version']}", "Yenilikleri görmek ve güncellemek için tıklayın.",
-                        "info", action=("Güncelle", self._prompt_update), system=True)
+        self._refresh_banner()
+        if self.tray and self.tray.isVisible() and not self.isActiveWindow():
+            self.tray.showMessage("Yeni sürüm hazır", f"BYK Music v{info['version']} yayınlandı.",
+                                  QSystemTrayIcon.Information, 6000)
+        if self.dl_worker:
+            # kullanıcının indirmesini bölme: şerit görünür, pencere indirmeler bitince açılır
+            self.notify("Yeni sürüm hazır", f"v{info['version']} · indirmeleriniz bitince güncelleme penceresi açılacak.",
+                        "info")
+            return
+        QTimer.singleShot(400, lambda: self._prompt_update(auto=True))
 
-    def _prompt_update(self):
+    def _prompt_update(self, auto: bool = False):
+        """Güncelleme penceresini açar. auto: otomatik kurulum açıksa indirmeyi hemen başlatır."""
+        if self._update_dialog_open or not self.update_info:
+            return
+        if self._pending_update:
+            self._update_ready_dialog()
+            return
+        self._update_prompted = True
+        self._update_dialog_open = True
+        self._bring_front()
         dlg = UpdateDialog(self.update_info, __version__, self)
         dlg.update_requested.connect(lambda: self._start_update_download(dlg))
+        downloading = self.up_dl_worker and self.up_dl_worker.isRunning()
+        if downloading:
+            dlg.set_downloading()
+            self.up_dl_worker.progress.connect(dlg.set_progress)
+        elif auto and self.settings["auto_install"] and self._can_self_update():
+            QTimer.singleShot(250, lambda: self._start_update_download(dlg))
         dlg.exec()
+        self._update_dialog_open = False
         self._after_update_dialog(dlg)
 
     def _start_update_download(self, dlg: UpdateDialog):
@@ -1370,10 +1462,12 @@ class MainWindow(QMainWindow):
             return
         info = self.update_info
         self.up_dl_worker = updater.UpdateDownloadWorker(info["url"], info["name"], url_opener(self.settings))
+        self.up_dl_worker.progress.connect(lambda pct: self._refresh_banner(pct))
         if dlg:
             self.up_dl_worker.progress.connect(dlg.set_progress)
 
         def failed(msg):
+            self._refresh_banner()
             if dlg and dlg.isVisible():
                 dlg.set_failed(msg)
             else:
@@ -1383,6 +1477,7 @@ class MainWindow(QMainWindow):
         def done(path):
             self._pending_update = path
             self.nav_update.set_badge("Hazır", "success")
+            self._refresh_banner()
             if dlg and dlg.isVisible():
                 dlg.set_ready()
             else:
@@ -1402,8 +1497,14 @@ class MainWindow(QMainWindow):
         self._update_ready_dialog()
 
     def _update_ready_dialog(self):
+        if self._update_dialog_open:
+            return
+        self._update_dialog_open = True
+        self._update_prompted = True
+        self._bring_front()
         dlg = UpdateDialog(self.update_info, __version__, self, ready=True)
         dlg.exec()
+        self._update_dialog_open = False
         self._after_update_dialog(dlg)
 
     def _after_update_dialog(self, dlg: UpdateDialog):

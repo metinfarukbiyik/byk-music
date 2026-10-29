@@ -9,8 +9,8 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineE
 from .. import __version__
 from ..config import APP_NAME, DEVELOPER
 from .icons import set_icon
-from .styles import ACCENT, ACCENT_SOFT
-from .widgets import ContactCard, card
+from .styles import ACCENT
+from .widgets import card
 
 SUBJECTS = ["Genel soru", "Hata bildirimi", "Öneri / istek", "İş birliği"]
 
@@ -34,6 +34,26 @@ def whatsapp_display() -> str:
     return f"+{n}" if n else ""
 
 
+def contact_chips() -> list[QPushButton]:
+    """E-posta, web sitesi ve WhatsApp için ikonlu küçük hap düğmeler."""
+    d = DEVELOPER
+    items = [("email-outline", d["email"], f"mailto:{d['email']}", ACCENT),
+             ("web", d["brand"], d["website"], "#5925DC")]
+    wa = whatsapp_url()
+    if wa:
+        items.append(("whatsapp", whatsapp_display(), wa.toString(), "#128C7E"))
+    chips = []
+    for icon_name, text, url, color in items:
+        b = QPushButton(text)
+        b.setObjectName("contactChip")
+        b.setCursor(Qt.PointingHandCursor)
+        b.setToolTip(url)
+        set_icon(b, icon_name, color, 15)
+        b.clicked.connect(lambda _=False, u=url: QDesktopServices.openUrl(QUrl(u)))
+        chips.append(b)
+    return chips
+
+
 class ContactPage(QWidget):
     """Geliştiriciye e-posta ya da WhatsApp ile ulaşma sayfası."""
 
@@ -53,54 +73,40 @@ class ContactPage(QWidget):
         lay.addWidget(h)
         lay.addWidget(s)
 
-        row = QHBoxLayout()
-        row.setSpacing(14)
-
-        # --- geliştirici kartı
+        # --- geliştirici şeridi
         prof = card()
-        prof.setFixedWidth(340)
-        pl = QVBoxLayout(prof)
-        pl.setContentsMargins(22, 22, 22, 22)
-        pl.setSpacing(6)
-        initials = "".join(part[0] for part in d["name"].split()[:2]).upper()
-        avatar = QLabel(initials)
-        avatar.setObjectName("avatar")
-        avatar.setFixedSize(64, 64)
+        pl = QHBoxLayout(prof)
+        pl.setContentsMargins(18, 14, 18, 14)
+        pl.setSpacing(14)
+        avatar = QLabel("".join(part[0] for part in d["name"].split()[:2]).upper())
+        avatar.setObjectName("avatarSm")
+        avatar.setFixedSize(46, 46)
         avatar.setAlignment(Qt.AlignCenter)
+        who = QVBoxLayout()
+        who.setSpacing(1)
         name = QLabel(d["name"])
         name.setObjectName("h2")
         brand = QLabel(f"{d['title']} · {d['brand']}")
-        brand.setObjectName("muted")
+        brand.setObjectName("small")
+        who.addWidget(name)
+        who.addWidget(brand)
         pl.addWidget(avatar)
-        pl.addSpacing(6)
-        pl.addWidget(name)
-        pl.addWidget(brand)
-        pl.addSpacing(14)
-
-        cards = [("email-outline", "E-posta", d["email"], f"mailto:{d['email']}", ACCENT, ACCENT_SOFT),
-                 ("web", "Web sitesi", d["brand"], d["website"], "#5925DC", "#EBE9FE")]
-        wa = whatsapp_url()
-        if wa:
-            cards.append(("whatsapp", "WhatsApp", whatsapp_display(), wa.toString(), "#128C7E", "#DCFAE6"))
-        grid = QVBoxLayout()
-        grid.setSpacing(10)
-        for icon_name, label, value, url, color, soft in cards:
-            c = ContactCard(icon_name, label, value, color, soft)
-            c.setToolTip(url)
-            c.clicked.connect(lambda _=False, u=url: QDesktopServices.openUrl(QUrl(u)))
-            grid.addWidget(c)
-        pl.addLayout(grid)
+        pl.addLayout(who)
         pl.addStretch()
-        copy = QPushButton("E-posta adresini kopyala")
-        set_icon(copy, "content-copy")
+        for chip in contact_chips():
+            pl.addWidget(chip)
+        copy = QPushButton()
+        copy.setObjectName("iconBtn")
+        copy.setToolTip("E-posta adresini kopyala")
+        set_icon(copy, "content-copy", size=15)
         copy.clicked.connect(self._copy_email)
         pl.addWidget(copy)
-        row.addWidget(prof)
+        lay.addWidget(prof)
 
         # --- mesaj formu
         form = card()
         fl = QVBoxLayout(form)
-        fl.setContentsMargins(22, 20, 22, 20)
+        fl.setContentsMargins(20, 16, 20, 16)
         fl.setSpacing(10)
         t = QLabel("Mesaj gönder")
         t.setObjectName("h2")
@@ -124,30 +130,30 @@ class ContactPage(QWidget):
         self.message.setPlaceholderText("Mesajınızı yazın…")
         fl.addWidget(self.message, 1)
 
-        self.sysinfo = QCheckBox("Sürüm ve işletim sistemi bilgisini ekle (hata bildirimleri için önerilir)")
-        fl.addWidget(self.sysinfo)
-
-        btns = QHBoxLayout()
-        btns.addStretch()
-        self.wa_btn = QPushButton("WhatsApp ile gönder")
-        self.wa_btn.setObjectName("whatsapp")
-        set_icon(self.wa_btn, "whatsapp", "#FFFFFF")
+        bottom = QHBoxLayout()
+        bottom.setSpacing(8)
+        self.sysinfo = QCheckBox("Sürüm ve sistem bilgisini ekle")
+        self.sysinfo.setToolTip("Hata bildirimleri için önerilir")
+        bottom.addWidget(self.sysinfo)
+        bottom.addStretch()
+        self.wa_btn = QPushButton("WhatsApp")
+        self.wa_btn.setObjectName("whatsappSm")
+        set_icon(self.wa_btn, "whatsapp", "#FFFFFF", 15)
         self.wa_btn.setCursor(Qt.PointingHandCursor)
+        self.wa_btn.setToolTip("Mesajı WhatsApp'ta açar")
         self.wa_btn.clicked.connect(self._send_whatsapp)
         if whatsapp_url() is None:
             self.wa_btn.setEnabled(False)
-            self.wa_btn.setToolTip("WhatsApp numarası henüz tanımlanmadı.")
-        mail_btn = QPushButton("E-posta ile gönder")
-        mail_btn.setObjectName("primary")
-        set_icon(mail_btn, "send", "#FFFFFF")
+        mail_btn = QPushButton("E-posta gönder")
+        mail_btn.setObjectName("primarySm")
+        set_icon(mail_btn, "send", "#FFFFFF", 15)
         mail_btn.setCursor(Qt.PointingHandCursor)
+        mail_btn.setToolTip("Mesajı e-posta uygulamanızda açar")
         mail_btn.clicked.connect(self._send_mail)
-        btns.addWidget(self.wa_btn)
-        btns.addWidget(mail_btn)
-        fl.addLayout(btns)
-        row.addWidget(form, 1)
-
-        lay.addLayout(row, 1)
+        bottom.addWidget(self.wa_btn)
+        bottom.addWidget(mail_btn)
+        fl.addLayout(bottom)
+        lay.addWidget(form, 1)
 
     def _compose(self) -> tuple[str, str] | None:
         text = self.message.toPlainText().strip()
