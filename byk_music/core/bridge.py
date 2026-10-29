@@ -4,7 +4,8 @@ Yalnızca 127.0.0.1 üzerinde dinleyen küçük bir HTTP sunucusu. Dış ağa a�
 güvenlik duvarı izni gerektirmez. Yalnızca tarayıcı eklentilerinden (chrome-extension://,
 moz-extension://) gelen ve YouTube bağlantısı içeren istekleri kabul eder.
 
-  GET  /ping    -> {"app": ..., "version": ...}
+  GET  /ping    -> {"app": ..., "version": ..., "extension_version": ...}
+  POST /hello   {"version", "browser"}      -> eklenti yüklendi / tarayıcı açıldı
   POST /detect  {"url", "title"}            -> kullanıcı YouTube'da bir video açtı
   POST /add     {"url", "title", "format"}  -> kullanıcı "indir"e bastı
   POST /cookies {"cookies": [...]}          -> kullanıcı eklentiden YouTube oturumunu aktardı
@@ -25,6 +26,7 @@ from PySide6.QtCore import QObject, Signal
 
 from .. import __version__
 from ..config import APP_NAME
+from .extension import browser_from_user_agent, bundled_version
 from .settings import config_dir
 
 log = logging.getLogger("byk.bridge")
@@ -72,6 +74,7 @@ class BrowserBridge(QObject):
     detected = Signal(dict)
     add_requested = Signal(dict)
     cookies_received = Signal(str, int)   # dosya yolu, çerez sayısı
+    extension_hello = Signal(dict)        # {version, browser}
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -104,7 +107,8 @@ class BrowserBridge(QObject):
 
             def do_GET(self):
                 if self.path == "/ping" and self._allowed():
-                    self._reply(200, {"app": APP_NAME, "version": __version__})
+                    self._reply(200, {"app": APP_NAME, "version": __version__,
+                                      "extension_version": bundled_version()})
                 else:
                     self._reply(404, {"error": "not found"})
 
@@ -118,6 +122,12 @@ class BrowserBridge(QObject):
                     data = json.loads(self.rfile.read(length) or b"{}")
                 except (ValueError, OSError):
                     self._reply(400, {"error": "bad request"})
+                    return
+                if self.path == "/hello":
+                    browser = str(data.get("browser", "")) or browser_from_user_agent(self.headers.get("User-Agent", ""))
+                    bridge.extension_hello.emit({"version": str(data.get("version", ""))[:20],
+                                                 "browser": browser[:20]})
+                    self._reply(200, {"ok": True, "extension_version": bundled_version()})
                     return
                 if self.path == "/cookies":
                     cookies = data.get("cookies")

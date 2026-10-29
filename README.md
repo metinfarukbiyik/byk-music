@@ -39,7 +39,7 @@ Geliştirici: **Metin Faruk Bıyık** · [biyik.dev](https://biyik.dev) · metin
 |---------|-------------------------------|-----|
 | Windows | `BYKMusic-Windows-Setup.exe`  | `C:\Program Files\BYK Music` altına kurulur; Denetim Masası > Programlar'da yayıncı **biyik.dev** olarak görünür. |
 | macOS   | `BYKMusic-macOS.dmg`          | Uygulamayı *Applications* klasörüne sürükleyin. |
-| Tarayıcı | `BYKMusic-Browser-Extension.zip` | Uygulamada **Ayarlar → Tarayıcı entegrasyonu → Eklentiyi Kur** adımlarını izleyin. |
+| Tarayıcı | (uygulamayla gelir) | **Ayarlar → Tarayıcı entegrasyonu → Eklentiyi Kur** sihirbazı tarayıcıyı bulur, uzantılar sayfasını ve eklenti klasörünü açar, kurulumu kendiliğinden algılar. Eklenti, uygulama güncellendiğinde kendini otomatik günceller. |
 
 ## Sürüm yayınlama
 

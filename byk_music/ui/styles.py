@@ -123,6 +123,21 @@ QFrame#devHero QLabel#heroAvatarSm {{ background: {ACCENT}; color: white; border
 QFrame#devHero QLabel#heroNameSm {{ font-size: 17px; font-weight: 800; }}
 QFrame#updateBanner {{ background: {ACCENT_SOFT}; border: none; border-bottom: 1px solid #C7D7FE; }}
 QLabel#bannerText {{ color: #1E3A8A; }}
+QLabel#wizDot {{ background: #EEF1F5; color: {MUTED}; border-radius: 13px; font-size: 12px; font-weight: 800; }}
+QLabel#wizDot[state="active"] {{ background: {ACCENT}; color: white; }}
+QLabel#wizDot[state="done"] {{ background: {SUCCESS}; color: white; }}
+QLabel#wizLabel {{ color: {MUTED}; font-weight: 600; }}
+QLabel#wizLabel[state="active"] {{ color: {TEXT}; font-weight: 800; }}
+QLabel#wizLabel[state="done"] {{ color: #067647; }}
+QFrame#wizBar {{ background: {BORDER}; border: none; }}
+QFrame#wizardLine {{ background: {BORDER}; border: none; }}
+QPushButton#browserCard {{ background: {SURFACE}; border: 1px solid #D0D5DD; border-radius: 10px; padding: 12px 16px;
+                           text-align: left; font-size: 14px; font-weight: 700; color: {TEXT}; }}
+QPushButton#browserCard:hover {{ border-color: {ACCENT}; }}
+QPushButton#browserCard:checked {{ border: 2px solid {ACCENT}; background: #F5F8FF; }}
+QFrame#autoBox {{ background: #F6FEF9; border: 1px solid #ABEFC6; border-radius: 10px; }}
+QLabel#okNote {{ background: #ECFDF3; color: #067647; border: 1px solid #ABEFC6; border-radius: 8px; padding: 8px 10px; }}
+QPushButton#smallBtn {{ padding: 4px 10px; font-size: 12px; border-radius: 6px; }}
 QFrame#loadingHead {{ background: transparent; border: none; border-bottom: 1px solid {BORDER}; }}
 QFrame#bubble {{ background: {SURFACE}; border: 1px solid #D0D5DD; border-radius: 14px; }}
 QLabel#bubbleTitle {{ font-size: 14px; font-weight: 700; }}

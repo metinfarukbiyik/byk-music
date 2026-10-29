@@ -1,6 +1,5 @@
+import logging
 import re
-import shutil
-import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -17,6 +16,7 @@ from .. import __version__
 from ..config import APP_NAME, APP_TAGLINE
 from ..core import updater
 from ..core.bridge import PORT, BrowserBridge
+from ..core.extension import BROWSERS, sync_extension_files
 from ..core.downloader import DownloadWorker, InfoWorker, MultiInfoWorker, ffmpeg_path, fmt_duration
 from ..core.history import History, reveal_in_folder
 from ..core.links import analyze
@@ -28,6 +28,7 @@ from .account import AccountPage
 from .bubble import DetectBubble
 from .contact import ContactPage
 from .dev_dialog import DeveloperDialog, LogBuffer
+from .extension_wizard import ExtensionWizard
 from .icons import icon, set_icon
 from .multilink import MultiLinkDialog, find_links
 from .styles import ACCENT, app_icon
@@ -53,12 +54,6 @@ VIDEO_QUALITIES = [("En iyi", "best"), ("2160p (4K)", "2160"), ("1440p", "1440")
 AUDIO_QUALITIES = ["320", "256", "192", "128"]
 PAGE_DOWNLOAD, PAGE_HISTORY, PAGE_ACCOUNT, PAGE_SETTINGS, PAGE_CONTACT = range(5)
 UPDATE_INTERVAL_MS = 30 * 60 * 1000  # çalışırken yarım saatte bir güncelleme denetle
-
-
-def extension_source() -> Path:
-    """Uygulamayla birlikte gelen tarayıcı eklentisi klasörü."""
-    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
-    return base / "browser-extension"
 
 
 def page_header(title: str, subtitle: str) -> QVBoxLayout:
@@ -137,6 +132,13 @@ class MainWindow(QMainWindow):
         self.bridge.detected.connect(self._on_detected)
         self.bridge.add_requested.connect(self._on_add_requested)
         self.bridge.cookies_received.connect(self._on_cookies_received)
+        self.bridge.extension_hello.connect(self._on_extension_hello)
+        self._wizard = None
+        self._refresh_extension_status()
+        try:
+            sync_extension_files()  # eklenti yeni sürümü görünce kendini yeniden yükler
+        except OSError as exc:
+            logging.getLogger("byk").warning("Eklenti dosyaları güncellenemedi: %s", exc)
         if self.settings["browser_bridge"]:
             self.bridge.start()
         self.watcher = None
@@ -561,9 +563,11 @@ class MainWindow(QMainWindow):
         row.setContentsMargins(28, 0, 0, 0)
         ext_btn = QPushButton("Eklentiyi Kur")
         ext_btn.setObjectName("primary")
-        set_icon(ext_btn, "web", "#FFFFFF")
+        set_icon(ext_btn, "puzzle-outline", "#FFFFFF")
         ext_btn.clicked.connect(self.install_extension)
+        self.ext_status = Badge("", "neutral")
         row.addWidget(ext_btn)
+        row.addWidget(self.ext_status)
         row.addStretch()
         v.addLayout(row)
         lay.addWidget(box)
@@ -648,31 +652,40 @@ class MainWindow(QMainWindow):
         self._conn_worker.start()
 
     def install_extension(self):
-        """Eklenti dosyalarını kalıcı bir klasöre kopyalar ve kurulum adımlarını gösterir."""
-        src = extension_source()
-        if not src.exists():
-            self.notify("Eklenti dosyaları bulunamadı", str(src), "error")
+        """Eklenti kurulum sihirbazını açar."""
+        if self._wizard:
+            self._wizard.raise_()
             return
-        dest = config_dir() / "browser-extension"
-        shutil.copytree(src, dest, dirs_exist_ok=True)
-        box = QMessageBox(self)
-        box.setWindowTitle("Tarayıcı eklentisini kur")
-        box.setIconPixmap(icon("web", ACCENT).pixmap(48, 48))
-        box.setText("BYK Music eklentisi birkaç adımda kurulur:")
-        box.setInformativeText(
-            "Chrome, Edge, Brave, Opera:\n"
-            "1. Adres çubuğuna chrome://extensions (Edge: edge://extensions) yazın.\n"
-            "2. Sağ üstten “Geliştirici modu”nu açın.\n"
-            "3. “Paketlenmemiş öğe yükle” düğmesine tıklayın.\n"
-            "4. Açılan klasörü (browser-extension) seçin.\n\n"
-            "Firefox:\n"
-            "about:debugging → Bu Firefox → Geçici eklenti yükle → klasördeki manifest.json\n\n"
-            "Kurulumdan sonra YouTube'da bir video açtığınızda indirme balonu görünür.")
-        open_btn = box.addButton("Klasörü Göster", QMessageBox.AcceptRole)
-        box.addButton("Kapat", QMessageBox.RejectRole)
-        box.exec()
-        if box.clickedButton() is open_btn:
-            reveal_in_folder(str(dest / "manifest.json"))
+        self._wizard = ExtensionWizard(self, self.settings["extension_seen"], self._ensure_bridge)
+        self._wizard.open_account.connect(lambda: self._goto(PAGE_ACCOUNT))
+        self._wizard.exec()
+        self._wizard = None
+
+    def _ensure_bridge(self):
+        if not self.bridge.running:
+            self.settings["browser_bridge"] = True
+            self.settings.save()
+            if not self.bridge.start():
+                self.notify("Tarayıcı bağlantısı açılamadı",
+                            f"{PORT} numaralı yerel bağlantı noktası başka bir uygulama tarafından kullanılıyor.", "error")
+
+    def _on_extension_hello(self, info: dict):
+        first = self.settings["extension_seen"] != info
+        self.settings["extension_seen"] = info
+        self.settings.save()
+        self._refresh_extension_status()
+        if self._wizard:
+            self._wizard.on_hello(info)
+        elif first:
+            self.notify("Tarayıcı eklentisi bağlandı", f"v{info.get('version', '')}", "success")
+
+    def _refresh_extension_status(self):
+        info = self.settings["extension_seen"]
+        if info and info.get("version"):
+            name = BROWSERS.get(info.get("browser"), ("Tarayıcı",))[0]
+            self.ext_status.set(f"✓ Kurulu · {name} · v{info['version']}", "success")
+        else:
+            self.ext_status.set("Kurulu değil", "neutral")
 
     def _setup_tray(self):
         if not QSystemTrayIcon.isSystemTrayAvailable():

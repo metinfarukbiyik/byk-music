@@ -19,6 +19,7 @@ DEFAULTS = {
     "clean_titles": True,       # dosya adlarındaki (Official Video), [HD] gibi etiketleri temizle
     "browser_bridge": True,     # tarayıcı eklentisinden gelen bağlantıları kabul et (yalnızca 127.0.0.1)
     "show_bubble": True,        # YouTube'da video algılanınca indirme balonu göster
+    "extension_seen": {},       # en son bağlanan eklenti: {version, browser}
     "window_watch": True,       # eklenti olmadan tarayıcı penceresinden YouTube videosunu algıla
     "proxy_mode": "system",     # system | none | custom
     "proxy_url": "",            # http://kullanıcı:parola@sunucu:port  ya da  socks5://sunucu:port
