@@ -1,8 +1,8 @@
-// YouTube sayfasında açık olan videoyu algılar ve BYK Music'e iletir.
+// YouTube sayfasında açık olan videoyu algılar, videonun altındaki düğme satırına
+// "BYK · MP3 · MP4" düğmesi ekler ve BYK Music masaüstü uygulamasına iletir.
 (() => {
-  const SETTINGS = { showButton: true, detect: true, format: "mp3" };
+  const SETTINGS = { showButton: true, detect: true };
   let lastUrl = "";
-  let root = null;
 
   const send = (type, payload) =>
     new Promise((resolve) => {
@@ -26,70 +26,85 @@
 
   function title() {
     const el =
-      document.querySelector("h1.ytd-watch-metadata yt-formatted-string") ||
+      document.querySelector("ytd-watch-metadata h1 yt-formatted-string") ||
       document.querySelector("ytmusic-player-bar .title") ||
-      document.querySelector("h1.ytd-playlist-header-renderer, yt-dynamic-sizing-formatted-string");
+      document.querySelector("yt-dynamic-sizing-formatted-string, h1.ytd-playlist-header-renderer");
     const text = (el && el.textContent.trim()) || document.title;
     return text.replace(/^\(\d+\)\s*/, "").replace(/\s*-\s*YouTube( Music)?$/, "").trim();
   }
 
-  function toast(text, ok) {
-    if (!root) return;
-    const status = root.querySelector(".byk-status");
-    status.textContent = text;
-    status.className = "byk-status " + (ok ? "ok" : "err");
-    status.hidden = false;
-    clearTimeout(status._t);
-    status._t = setTimeout(() => (status.hidden = true), 3500);
-  }
-
-  async function add(format) {
-    const item = current();
-    if (!item) return;
-    const r = await send("add", { url: item.url, title: title(), format });
-    toast(r.ok ? "BYK Music'e gönderildi ✓" : "BYK Music açık değil. Uygulamayı başlatın.", r.ok);
-  }
-
+  // ------------------------------------------------ videonun yanındaki düğme
   function buildButton() {
-    root = document.createElement("div");
-    root.id = "byk-music-root";
-    root.innerHTML = `
-      <div class="byk-status" hidden></div>
-      <div class="byk-bar">
-        <span class="byk-logo">♫</span>
-        <button class="byk-btn" data-f="mp3">MP3</button>
-        <button class="byk-btn" data-f="mp4">MP4</button>
-      </div>`;
-    root.querySelectorAll(".byk-btn").forEach((b) => b.addEventListener("click", () => add(b.dataset.f)));
-    root.title = "BYK Music ile indir";
-    document.documentElement.appendChild(root);
+    const box = document.createElement("div");
+    box.id = "byk-inline";
+    box.innerHTML = `
+      <span class="byk-mark" title="BYK Music ile indir">♫</span>
+      <button class="byk-opt" data-f="mp3" title="MP3 olarak indir">MP3</button>
+      <span class="byk-sep"></span>
+      <button class="byk-opt" data-f="mp4" title="MP4 olarak indir">MP4</button>`;
+    box.querySelectorAll(".byk-opt").forEach((b) =>
+      b.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const item = current();
+        if (!item) return;
+        const label = b.textContent;
+        b.disabled = true;
+        const r = await send("add", { url: item.url, title: title(), format: b.dataset.f });
+        b.textContent = r.ok ? "✓" : "!";
+        b.title = r.ok ? "BYK Music'e eklendi" : "BYK Music açık değil";
+        box.classList.toggle("byk-err", !r.ok);
+        setTimeout(() => {
+          b.textContent = label;
+          b.disabled = false;
+          box.classList.remove("byk-err");
+        }, 2200);
+      })
+    );
+    return box;
   }
 
-  function update() {
+  function placeButton() {
+    const existing = document.getElementById("byk-inline");
     const item = current();
-    if (root) root.hidden = !SETTINGS.showButton || !item;
-    if (!item) return;
+    if (!SETTINGS.showButton || !item || item.kind !== "video") {
+      if (existing) existing.remove();
+      return;
+    }
+    // YouTube'un Beğen / Paylaş düğmelerinin bulunduğu satır
+    const anchor =
+      document.querySelector("ytd-watch-metadata #actions #top-level-buttons-computed") ||
+      document.querySelector("ytd-watch-metadata #actions-inner") ||
+      document.querySelector("ytd-watch-metadata #title");
+    if (!anchor) return;
+    if (existing && existing.previousElementSibling === anchor) return;
+    if (existing) existing.remove();
+    anchor.insertAdjacentElement("afterend", buildButton());
+  }
+
+  // ------------------------------------------------------ algılama
+  function update() {
+    placeButton();
+    const item = current();
+    if (!item || item.url === lastUrl) return;
+    lastUrl = item.url;
     const key = item.url;
-    if (key === lastUrl) return;
-    lastUrl = key;
     // Başlığın yüklenmesi için kısa bir süre bekle
     setTimeout(() => {
-      if (SETTINGS.detect && current() && current().url === key) send("detect", { url: key, title: title() });
+      const now = current();
+      if (SETTINGS.detect && now && now.url === key) send("detect", { url: key, title: title() });
     }, 1500);
   }
 
   chrome.storage.local.get(SETTINGS, (s) => {
     Object.assign(SETTINGS, s);
-    buildButton();
     update();
     document.addEventListener("yt-navigate-finish", update);
     window.addEventListener("popstate", update);
-    setInterval(update, 2000); // YouTube Music ve tek sayfa geçişleri için
+    setInterval(update, 1500); // YouTube sayfa içeriğini sonradan yüklediği için
   });
 
   chrome.storage.onChanged.addListener((changes) => {
     for (const [k, v] of Object.entries(changes)) SETTINGS[k] = v.newValue;
-    lastUrl = "";
     update();
   });
 })();

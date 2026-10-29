@@ -23,6 +23,7 @@ from ..core.links import analyze
 from ..core.naming import clean_title, safe_filename
 from ..core.net import ConnectionTestWorker, url_opener, ydl_base_opts
 from ..core.settings import Settings, config_dir
+from ..core.watcher import BrowserWatcher
 from .account import AccountPage
 from .bubble import DetectBubble
 from .contact import ContactPage
@@ -138,6 +139,7 @@ class MainWindow(QMainWindow):
         self.bridge.cookies_received.connect(self._on_cookies_received)
         if self.settings["browser_bridge"]:
             self.bridge.start()
+        self.watcher = None
         self._load_settings_into_ui()
         self._refresh_history()
         QGuiApplication.instance().applicationStateChanged.connect(self._on_app_state)
@@ -147,6 +149,8 @@ class MainWindow(QMainWindow):
         if self.settings["auto_update"]:
             self.check_updates(silent=True)
             self.update_timer.start()
+        if self.settings["window_watch"]:
+            self._start_watcher()
         self._check_clipboard()
 
     # ================================================================ yapı
@@ -547,7 +551,11 @@ class MainWindow(QMainWindow):
         box, v = section("Tarayıcı entegrasyonu", "web", [
             ("browser_bridge", "Tarayıcı eklentisinden gelen bağlantıları kabul et",
              f"Yalnızca bu bilgisayardan (127.0.0.1:{PORT}) bağlantı kabul edilir; dış ağa kapalıdır."),
-            ("show_bubble", "YouTube'da video açıldığında ekranın kenarında indirme balonu göster", ""),
+            ("show_bubble", "YouTube'da video açıldığında sağ alt köşede indirme balonu göster", ""),
+            ("window_watch", "Eklenti kurulu olmasa da tarayıcıda açılan YouTube videolarını algıla",
+             "Windows'ta tarayıcı penceresinin başlığı, macOS'ta öndeki sekmenin adresi okunur. Bu bilgi "
+             "bilgisayarınızdan çıkmaz; Windows'ta yalnızca video başlığı YouTube'da aranır. macOS ilk "
+             "kullanımda tarayıcıya erişim izni ister."),
         ])
         row = QHBoxLayout()
         row.setContentsMargins(28, 0, 0, 0)
@@ -703,6 +711,8 @@ class MainWindow(QMainWindow):
             self.tray.setVisible(on)
         if key == "auto_update":
             self.update_timer.start() if on else self.update_timer.stop()
+        if key == "window_watch":
+            self._start_watcher() if on else self._stop_watcher()
         if key == "browser_bridge":
             if on and not self.bridge.start():
                 self.notify("Tarayıcı bağlantısı açılamadı",
@@ -1201,6 +1211,19 @@ class MainWindow(QMainWindow):
         self._seen_urls.add(item["url"])
         self.bubble.show_item({**item, "title": self._display_name(item["title"])}, self.settings["format"])
 
+    def _start_watcher(self):
+        if self.watcher and self.watcher.isRunning():
+            return
+        self.watcher = BrowserWatcher(lambda: ydl_base_opts(self.settings, with_account=False))
+        self.watcher.detected.connect(self._on_detected)
+        self.watcher.start()
+
+    def _stop_watcher(self):
+        if self.watcher:
+            self.watcher.stop()
+            self.watcher.wait(3000)
+            self.watcher = None
+
     def _on_cookies_received(self, path: str, count: int):
         self._bring_front()
         self._goto(PAGE_ACCOUNT)
@@ -1208,6 +1231,7 @@ class MainWindow(QMainWindow):
         self.account_page.on_cookies_received(path, count)
 
     def _on_add_requested(self, item: dict):
+        self._seen_urls.add(item["url"])
         self.bubble.dismiss()
         self.quick_add(item, item.get("format"))
 
@@ -1537,6 +1561,7 @@ class MainWindow(QMainWindow):
         if self.tray:
             self.tray.hide()
         self.bridge.stop()
+        self._stop_watcher()
         self.bubble.close()
         self._install_pending(relaunch=False)
         event.accept()

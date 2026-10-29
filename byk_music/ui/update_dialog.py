@@ -2,8 +2,7 @@
 import html
 import re
 
-from PySide6.QtCore import Qt, QUrl, Signal
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QDialog, QFrame, QHBoxLayout, QLabel, QProgressBar, QPushButton, QStackedWidget,
                                QTextBrowser, QVBoxLayout, QWidget)
 
@@ -130,7 +129,8 @@ class UpdateDialog(QDialog):
         il.setContentsMargins(0, 0, 0, 0)
         shield = QLabel()
         shield.setPixmap(pixmap("shield-check-outline", 16, "#067647"))
-        self.info_text = QLabel("Güncelleme, uygulamanın resmi GitHub sürüm sayfasından indirilir.")
+        self.info_text = QLabel("Güncelleme indirildikten sonra otomatik olarak kurulur; ayarlarınız ve "
+                                "indirme geçmişiniz korunur.")
         self.info_text.setObjectName("small")
         self.info_text.setWordWrap(True)
         il.addWidget(shield)
@@ -152,12 +152,6 @@ class UpdateDialog(QDialog):
 
         # --- düğmeler
         btns = QHBoxLayout()
-        page = QPushButton("Sürüm sayfası")
-        page.setObjectName("link")
-        page.setCursor(Qt.PointingHandCursor)
-        set_icon(page, "open-in-new", ACCENT, 14)
-        page.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(info["page"])))
-        btns.addWidget(page)
         btns.addStretch()
         self.later_btn = QPushButton("Daha Sonra")
         self.later_btn.clicked.connect(self._later)

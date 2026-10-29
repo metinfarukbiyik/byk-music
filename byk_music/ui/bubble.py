@@ -1,6 +1,6 @@
-"""YouTube'da video algılandığında ekranın sağ kenarında beliren indirme balonu."""
+"""YouTube'da video algılandığında ekranın sağ alt köşesinden beliren indirme balonu."""
 from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, Qt, QTimer, Signal
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtGui import QCursor, QGuiApplication
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from .icons import icon, pixmap, set_icon
@@ -97,10 +97,12 @@ class DetectBubble(QWidget):
             b.style().unpolish(b)
             b.style().polish(b)
         self.adjustSize()
+        self.resize(self.sizeHint())
 
-        geo = QGuiApplication.primaryScreen().availableGeometry()
-        target = QPoint(geo.right() - self.width() - 12, geo.top() + int(geo.height() * 0.62) - self.height() // 2)
-        start = target + QPoint(60, 0) if not self.isVisible() else self.pos()
+        screen = QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
+        geo = screen.availableGeometry()  # görev çubuğu / Dock hariç alan
+        target = QPoint(geo.right() - self.width() - 8, geo.bottom() - self.height() - 8)
+        start = target + QPoint(0, 40) if not self.isVisible() else self.pos()
         self.move(start)
         self.setWindowOpacity(0.0 if not self.isVisible() else self.windowOpacity())
         self.show()
@@ -125,7 +127,7 @@ class DetectBubble(QWidget):
     def dismiss(self):
         if self.isVisible():
             self._timer.stop()
-            self._animate(self.pos() + QPoint(60, 0), 0.0, self.hide)
+            self._animate(self.pos() + QPoint(0, 40), 0.0, self.hide)
 
     def enterEvent(self, event):
         self._timer.stop()

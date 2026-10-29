@@ -100,6 +100,7 @@ jobs:
           plutil -replace CFBundleShortVersionString -string "$VERSION" "$plist"
           plutil -replace CFBundleVersion -string "$VERSION" "$plist"
           plutil -replace NSHumanReadableCopyright -string "© 2026 Metin Faruk Bıyık (biyik.dev)" "$plist"
+          plutil -replace NSAppleEventsUsageDescription -string "BYK Music, tarayıcınızda açık olan YouTube videosunu algılayıp indirme önerisi sunmak için öndeki sekmenin adresini okur." "$plist"
           codesign --force --deep --sign - dist/BYKMusic.app
           ditto -c -k --keepParent dist/BYKMusic.app BYKMusic-macOS.zip
           mkdir dmg && cp -R "dist/BYKMusic.app" "dmg/BYK Music.app" && ln -s /Applications dmg/Applications

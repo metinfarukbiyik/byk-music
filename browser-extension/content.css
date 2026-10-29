@@ -1,51 +1,39 @@
-#byk-music-root {
-  position: fixed;
-  right: 20px;
-  bottom: 84px;
-  z-index: 2147483000;
-  font: 600 13px/1 "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Arial, sans-serif;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 8px;
-}
-#byk-music-root[hidden] { display: none; }
-#byk-music-root .byk-bar {
-  display: flex;
+/* Videonun altındaki düğme satırına uyan "BYK · MP3 · MP4" düğmesi (açık ve koyu temaya uyumlu) */
+#byk-inline {
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 5px;
-  background: #ffffff;
-  border: 1px solid #d0d5dd;
-  border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(16, 24, 40, 0.18);
+  height: 36px;
+  margin-left: 8px;
+  padding: 0 4px 0 4px;
+  border-radius: 18px;
+  background: var(--yt-spec-badge-chip-background, rgba(0, 0, 0, 0.05));
+  color: var(--yt-spec-text-primary, #0f0f0f);
+  font: 500 14px/1 "Roboto", "Arial", sans-serif;
+  flex: none;
+  vertical-align: middle;
 }
-#byk-music-root .byk-logo {
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
+#byk-inline .byk-mark {
+  width: 26px;
+  height: 26px;
+  margin-right: 2px;
+  border-radius: 13px;
   display: grid;
   place-items: center;
   color: #fff;
-  font-size: 17px;
+  font-size: 14px;
   background: linear-gradient(135deg, #3b6cf0, #1f4fd8);
 }
-#byk-music-root .byk-btn {
+#byk-inline .byk-opt {
+  height: 36px;
+  min-width: 46px;
+  padding: 0 10px;
   border: 0;
-  border-radius: 8px;
-  padding: 9px 14px;
+  background: transparent;
+  color: inherit;
   font: inherit;
   cursor: pointer;
-  color: #344054;
-  background: #f2f4f7;
 }
-#byk-music-root .byk-btn:hover { background: #1f4fd8; color: #fff; }
-#byk-music-root .byk-status {
-  padding: 9px 12px;
-  border-radius: 10px;
-  color: #fff;
-  box-shadow: 0 8px 24px rgba(16, 24, 40, 0.18);
-}
-#byk-music-root .byk-status.ok { background: #12b76a; }
-#byk-music-root .byk-status.err { background: #f04438; }
-#byk-music-root .byk-status[hidden] { display: none; }
+#byk-inline .byk-opt:hover { color: #1f4fd8; }
+#byk-inline .byk-opt:disabled { cursor: default; }
+#byk-inline .byk-sep { width: 1px; height: 20px; background: var(--yt-spec-10-percent-layer, rgba(0, 0, 0, 0.1)); }
+#byk-inline.byk-err .byk-opt { color: #d93025; }

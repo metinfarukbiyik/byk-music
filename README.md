@@ -23,8 +23,9 @@ Geliştirici: **Metin Faruk Bıyık** · [biyik.dev](https://biyik.dev) · metin
 - **YouTube Hesabım:** tarayıcı eklentisinden tek tıkla oturum aktarma (önerilen), tarayıcıdan okuma ya da
   cookies.txt ile bağlanıp beğenilen videolar, "Daha sonra izle" ve oynatma listelerinize erişim
   (uygulama parola görmez ve saklamaz)
-- **Tarayıcı eklentisi ve indirme balonu:** YouTube'da açılan video algılanır, ekranın kenarında MP3 / MP4 indirme
-  balonu çıkar; bağlantı kopyalamadan listeye eklenip indirilir
+- **Otomatik video algılama:** tarayıcıda açılan YouTube videosu algılanır ve ekranın sağ alt köşesinde MP3 / MP4
+  indirme balonu çıkar; bağlantı kopyalamadan listeye eklenip indirilir. Eklenti gerekmez (Windows'ta pencere başlığı,
+  macOS'ta öndeki sekme adresi kullanılır); eklenti kuruluysa videonun altında ayrıca MP3 / MP4 düğmesi görünür
 - **Proxy desteği:** sistem ayarı, doğrudan bağlantı ya da özel HTTP / HTTPS / SOCKS5 proxy
 - Uygulama içinden geliştiriciye **e-posta** ya da **WhatsApp** ile ulaşma
 - **Otomatik güncelleme:** yeni sürüm arka planda indirilir ve kurulur
