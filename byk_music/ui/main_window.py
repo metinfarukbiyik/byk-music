@@ -886,7 +886,8 @@ class MainWindow(QMainWindow):
                            f"Bilgiler YouTube'dan alınıyor · {target[:90]}")
         self.list_stack.setCurrentWidget(self.loading)
         self._set_status("● Çözümleniyor", "info", pulse=True)
-        self.info_worker = InfoWorker(target, ydl_base_opts(self.settings))
+        self.info_worker = InfoWorker(target, ydl_base_opts(self.settings, with_account=False),
+                                      account_opts(self.settings))
         self.info_worker.result.connect(self._on_info)
         self.info_worker.failed.connect(self._on_info_failed)
         self.info_worker.finished.connect(self._fetch_done)
@@ -1202,7 +1203,8 @@ class MainWindow(QMainWindow):
             new_rows.append(r)
 
         if tasks:
-            worker = MultiInfoWorker(tasks, ydl_base_opts(self.settings))
+            worker = MultiInfoWorker(tasks, ydl_base_opts(self.settings, with_account=False),
+                                     account_opts=account_opts(self.settings))
             worker.resolved.connect(self._on_link_resolved)
             worker.failed.connect(self._on_link_failed)
             worker.finished.connect(lambda w=worker: self._resolvers.remove(w))

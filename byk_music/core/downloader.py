@@ -60,20 +60,56 @@ def fmt_size(num) -> str:
     return f"{num:.1f} TB"
 
 
-def extract_items(url: str, base_opts: dict) -> dict:
-    """Bağlantıdaki tek videoyu ya da listedeki tüm videoları (indirmeden) listeler."""
+ACCOUNT_LISTS = ("list=LL", "list=WL", "list=LM")   # yalnızca oturumla erişilebilen listeler
+AUTH_HINTS = ("sign in", "login required", "private", "age", "members-only", "confirm you",
+              "does not exist", "unavailable")
+
+
+def _extract_once(url: str, opts: dict) -> dict:
+    """Yalnızca başlık, süre ve kanal bilgisini okur; video biçimi seçmez (process=False).
+    Biçim seçimi indirme sırasında yapılır; böylece listeleme biçim hatasına takılmaz."""
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=False, process=False)
+        for _ in range(3):  # youtu.be gibi yönlendirmeleri izle
+            if info and info.get("_type") in ("url", "url_transparent") and info.get("url"):
+                info = ydl.extract_info(info["url"], download=False, process=False)
+            else:
+                break
+        if info and info.get("entries") is not None:
+            info["entries"] = list(info["entries"])
+    return info
+
+
+def extract_items(url: str, base_opts: dict, account_opts: dict | None = None) -> dict:
+    """Bağlantıdaki tek videoyu ya da listedeki tüm videoları (indirmeden) listeler.
+    Önce oturumsuz denenir; içerik oturum gerektiriyorsa YouTube hesabıyla yeniden denenir."""
     opts = {
         **base_opts,
         "quiet": True,
         "no_warnings": True,
         "extract_flat": "in_playlist",
         "skip_download": True,
+        "ignore_no_formats_error": True,
         "logger": _YDLLogger(),
     }
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(url, download=False)
+    with_account = {**opts, **(account_opts or {})}
+    attempts = [with_account] if account_opts and any(k in url for k in ACCOUNT_LISTS) else [opts]
+    if account_opts and attempts[0] is opts:
+        attempts.append(with_account)
+    info, last_exc = None, None
+    for i, attempt in enumerate(attempts):
+        try:
+            info = _extract_once(url, attempt)
+            if info:
+                break
+        except Exception as exc:
+            last_exc = exc
+            retry = i + 1 < len(attempts) and any(k in str(exc).lower() for k in AUTH_HINTS)
+            if not retry:
+                raise
+            log.info("Oturumsuz listelenemedi, YouTube hesabıyla deneniyor: %s", exc)
     if not info:
-        raise ValueError("Bağlantıdan bilgi alınamadı.")
+        raise last_exc or ValueError("Bağlantıdan bilgi alınamadı.")
 
     entries = info.get("entries")
     is_playlist = entries is not None
@@ -99,14 +135,15 @@ class InfoWorker(QThread):
     result = Signal(dict)
     failed = Signal(str)
 
-    def __init__(self, url: str, base_opts: dict | None = None):
+    def __init__(self, url: str, base_opts: dict | None = None, account_opts: dict | None = None):
         super().__init__()
         self.url = url
         self.base_opts = base_opts or {}
+        self.account_opts = account_opts or {}
 
     def run(self):
         try:
-            self.result.emit(extract_items(self.url, self.base_opts))
+            self.result.emit(extract_items(self.url, self.base_opts, self.account_opts))
         except Exception as exc:  # yt-dlp çok çeşitli hatalar fırlatır
             log.exception("Bilgi alınamadı")
             self.failed.emit(_clean_error(exc))
@@ -118,16 +155,18 @@ class MultiInfoWorker(QThread):
     resolved = Signal(object, dict)   # anahtar, extract_items sonucu
     failed = Signal(object, str)      # anahtar, hata
 
-    def __init__(self, tasks: list[tuple[object, str]], base_opts: dict | None = None, workers: int = 4):
+    def __init__(self, tasks: list[tuple[object, str]], base_opts: dict | None = None, workers: int = 4,
+                 account_opts: dict | None = None):
         super().__init__()
         self.tasks = tasks
         self.base_opts = base_opts or {}
+        self.account_opts = account_opts or {}
         self.workers = workers
 
     def run(self):
         def one(key, url):
             try:
-                self.resolved.emit(key, extract_items(url, self.base_opts))
+                self.resolved.emit(key, extract_items(url, self.base_opts, self.account_opts))
             except Exception as exc:
                 log.warning("Bilgi alınamadı (%s): %s", url, exc)
                 self.failed.emit(key, _clean_error(exc))
@@ -158,7 +197,8 @@ def _clean_error(exc: Exception) -> str:
     if "sign in to confirm" in low or "login required" in low or "private" in low:
         return "Bu içerik için YouTube oturumu gerekiyor. Hesap sayfasından bağlanın."
     if "requested format is not available" in low:
-        return "Bu video için uygun bir biçim bulunamadı. Farklı bir kalite seçip yeniden deneyin."
+        return ("YouTube bu video için indirilebilir bir biçim sunmadı. YouTube hesabı bağlıysa "
+                "YouTube Hesabım sayfasından bağlantıyı kesip yeniden deneyin.")
     if "ffmpeg" in low and ("not found" in low or "not installed" in low):
         return "Dönüştürme aracı (ffmpeg) bulunamadı. Uygulamayı yeniden kurmayı deneyin."
     if "http error 403" in low:
