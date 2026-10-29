@@ -128,6 +128,8 @@ jobs:
           merge-multiple: true
       - name: Tarayıcı eklentisini paketle
         run: cd browser-extension && zip -r ../release-files/BYKMusic-Browser-Extension.zip .
+      - name: Güncelleme bilgisini hazırla (latest.json)
+        run: python3 packaging/release_manifest.py "${{ needs.version.outputs.version }}" release-notes.md release-files > release-files/latest.json
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.version.outputs.version }}

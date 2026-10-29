@@ -1565,7 +1565,7 @@ class MainWindow(QMainWindow):
             self.up_worker.up_to_date.connect(
                 lambda: self.notify("Uygulama güncel", f"En son sürümü kullanıyorsunuz (v{__version__}).", "success"))
             self.up_worker.failed.connect(
-                lambda m: self.notify("Güncelleme denetlenemedi", m[:160], "error"))
+                lambda m: self.notify("Güncelleme denetlenemedi", m, "warning"))
         self.up_worker.start()
 
     def _can_self_update(self) -> bool:
