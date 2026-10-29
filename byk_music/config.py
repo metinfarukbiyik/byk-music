@@ -24,7 +24,7 @@ DEVELOPER = {
     "website": "https://biyik.dev",
     "github": f"https://github.com/{GITHUB_OWNER}",
     # Uluslararası biçimde, yalnızca rakam: 90 5xx xxx xx xx -> "905xxxxxxxxx"
-    "whatsapp": "",
+    "whatsapp": "905404613543",
     "about": (
         "BYK Music; YouTube müzik ve videolarını MP3 / MP4 olarak indirmek, "
         "oynatma listelerinden istenen parçaları seçip indirmek için geliştirilmiş "

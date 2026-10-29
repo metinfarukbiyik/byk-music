@@ -12,7 +12,7 @@ from .. import __version__
 from ..config import APP_NAME, COPYRIGHT, DEVELOPER
 from ..core.downloader import ffmpeg_path
 from ..core.settings import config_dir
-from .contact import whatsapp_url
+from .contact import whatsapp_display, whatsapp_url
 from .styles import ACCENT, ACCENT_SOFT, app_icon
 from .widgets import ContactCard
 
@@ -106,7 +106,7 @@ class DeveloperDialog(QDialog):
         urls = [f"mailto:{d['email']}", d["website"]]
         wa = whatsapp_url()
         if wa:
-            cards.append(ContactCard("whatsapp", "WhatsApp", "Mesaj gönder", "#128C7E", "#DCFAE6"))
+            cards.append(ContactCard("whatsapp", "WhatsApp", whatsapp_display(), "#128C7E", "#DCFAE6"))
             urls.append(wa.toString())
         for i, (card_btn, url) in enumerate(zip(cards, urls)):
             card_btn.setToolTip(url)

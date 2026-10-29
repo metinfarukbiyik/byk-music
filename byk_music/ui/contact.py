@@ -26,6 +26,14 @@ def whatsapp_url(text: str = "") -> QUrl | None:
     return QUrl(f"https://wa.me/{number}" + (f"?text={quote(text)}" if text else ""))
 
 
+def whatsapp_display() -> str:
+    """905404613543 -> +90 540 461 35 43"""
+    n = "".join(ch for ch in DEVELOPER.get("whatsapp", "") if ch.isdigit())
+    if len(n) == 12 and n.startswith("90"):
+        return f"+90 {n[2:5]} {n[5:8]} {n[8:10]} {n[10:]}"
+    return f"+{n}" if n else ""
+
+
 class ContactPage(QWidget):
     """Geliştiriciye e-posta ya da WhatsApp ile ulaşma sayfası."""
 
@@ -73,8 +81,7 @@ class ContactPage(QWidget):
                  ("web", "Web sitesi", d["brand"], d["website"], "#5925DC", "#EBE9FE")]
         wa = whatsapp_url()
         if wa:
-            number = "+" + "".join(c for c in d["whatsapp"] if c.isdigit())
-            cards.append(("whatsapp", "WhatsApp", number, wa.toString(), "#128C7E", "#DCFAE6"))
+            cards.append(("whatsapp", "WhatsApp", whatsapp_display(), wa.toString(), "#128C7E", "#DCFAE6"))
         grid = QVBoxLayout()
         grid.setSpacing(10)
         for icon_name, label, value, url, color, soft in cards:
