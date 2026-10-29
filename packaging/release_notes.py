@@ -3,6 +3,7 @@
   python packaging/release_notes.py <sürüm> > release-notes.md
 
 Her commit'in ilk satırı başlık, gövdesindeki "- " ile başlayan satırlar madde olur.
+"Belgeler:" ile başlayan commit'ler atlanır.
 """
 import subprocess
 import sys
@@ -20,6 +21,8 @@ def main(version: str) -> str:
     sections = []
     for entry in filter(None, (e.strip() for e in log.split("\x1e"))):
         subject, _, body = entry.partition("\x1f")
+        if subject.strip().startswith("Belgeler:"):
+            continue  # yalnızca belge değişiklikleri sürüm notuna eklenmez
         bullets, text = [], []
         for line in body.splitlines():
             line = line.rstrip()

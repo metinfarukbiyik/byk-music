@@ -6,7 +6,7 @@ name: Build & Release
 on:
   push:
     branches: [main]
-    paths-ignore: ["**.md", ".gitignore"]
+    paths-ignore: ["**.md", ".gitignore", "docs/**", "packaging/screenshots.py"]
   workflow_dispatch:
 
 permissions:
