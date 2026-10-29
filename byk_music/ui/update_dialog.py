@@ -59,7 +59,7 @@ class UpdateDialog(QDialog):
     def __init__(self, info: dict, current: str, parent=None, ready: bool = False):
         super().__init__(parent)
         self.info = info
-        self.choice = "later"   # later | update | install_now | install_on_exit
+        self.choice = "dismiss"   # now | later | background | dismiss
         self.setWindowTitle(f"{APP_NAME} güncellemesi")
         self.setMinimumSize(560, 560)
 
@@ -170,16 +170,32 @@ class UpdateDialog(QDialog):
     def _set_available(self):
         self._mode = "available"
         self.title.setText("Yeni sürüm hazır")
-        self.subtitle.setText(f"{APP_NAME} v{self.info['version']} yayınlandı.")
-        self.later_btn.setText("Daha Sonra")
-        self.primary_btn.setText("Şimdi Güncelle")
-        set_icon(self.primary_btn, "download", "#FFFFFF")
+        self.subtitle.setText(f"{APP_NAME} v{self.info['version']} yayınlandı. Ne zaman kurulsun?")
+        self._choice_buttons()
+        self.info_text.setText("“Şimdi Kur” güncellemeyi indirip uygulamayı yeni sürümle yeniden başlatır. "
+                               "“Daha Sonra Kur” seçilirse uygulamayı kapattığınızda kurulur.")
         self.status_stack.setCurrentIndex(0)
+
+    def set_ready(self):
+        self._mode = "ready"
+        self.title.setText("Güncelleme kurulmaya hazır")
+        self.subtitle.setText(f"{APP_NAME} v{self.info['version']} indirildi. Ne zaman kurulsun?")
+        self._choice_buttons()
+        self.info_text.setText("“Şimdi Kur” uygulamayı kısa bir süre kapatıp yeni sürümle açar; Windows yönetici "
+                               "onayı isteyebilir. “Daha Sonra Kur” seçilirse uygulamayı kapattığınızda kurulur.")
+        self.status_stack.setCurrentIndex(0)
+
+    def _choice_buttons(self):
+        self.later_btn.setText("Daha Sonra Kur")
+        self.later_btn.setEnabled(True)
+        self.primary_btn.setText("Şimdi Kur")
+        self.primary_btn.setEnabled(True)
+        set_icon(self.primary_btn, "restart", "#FFFFFF")
 
     def set_downloading(self):
         self._mode = "downloading"
         self.title.setText("Güncelleme indiriliyor")
-        self.subtitle.setText("İndirme arka planda sürer; pencereyi kapatabilirsiniz.")
+        self.subtitle.setText("İndirme bitince kurulum başlar.")
         self.later_btn.setText("Arka Planda Sürdür")
         self.primary_btn.setText("İndiriliyor…")
         self.primary_btn.setEnabled(False)
@@ -192,32 +208,28 @@ class UpdateDialog(QDialog):
         detail = f" · {fmt_mb(size * pct / 100)} / {fmt_mb(size)}" if size else ""
         self.prog_label.setText(f"İndiriliyor… %{pct}{detail}")
 
-    def set_ready(self):
-        self._mode = "ready"
-        self.title.setText("Güncelleme kurulmaya hazır")
-        self.subtitle.setText("Uygulama kısa bir süre kapanıp yeni sürümle yeniden açılacak.")
-        self.later_btn.setText("Kapanınca Kur")
-        self.primary_btn.setText("Şimdi Yeniden Başlat")
-        self.primary_btn.setEnabled(True)
-        set_icon(self.primary_btn, "restart", "#FFFFFF")
-        self.status_stack.setCurrentIndex(0)
-        self.info_text.setText("İndirme tamamlandı. Kurulum sırasında Windows yönetici onayı isteyebilir.")
-
     def set_failed(self, msg: str):
         self._set_available()
         self.primary_btn.setText("Yeniden Dene")
-        self.primary_btn.setEnabled(True)
         self.info_text.setText(f"Güncelleme indirilemedi: {msg[:160]}")
 
     # ---------------------------------------------------------- düğmeler
     def _primary(self):
-        if self._mode == "available":
-            self.choice = "update"
-            self.update_requested.emit()
-        elif self._mode == "ready":
-            self.choice = "install_now"
+        """Şimdi Kur: hazırsa pencere kapanır ve kurulum başlar; değilse önce indirilir."""
+        self.choice = "now"
+        if self._mode == "ready":
             self.accept()
+        elif self._mode == "available":
+            self.update_requested.emit()
 
     def _later(self):
-        self.choice = "install_on_exit" if self._mode == "ready" else "later"
+        # İndirme sürerken "Arka Planda Sürdür": kurulum için yeniden sorulur
+        self.choice = "background" if self._mode == "downloading" else "later"
         self.reject()
+
+    def reject(self):
+        if self.choice == "now" and self._mode == "downloading":
+            self.choice = "background"  # ✕ ile kapatıldı
+        elif self.choice not in ("later", "background"):
+            self.choice = "dismiss"     # ✕ / Esc: hiçbir şey kurulmaz, şerit hatırlatır
+        super().reject()

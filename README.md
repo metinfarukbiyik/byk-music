@@ -28,7 +28,7 @@ Geliştirici: **Metin Faruk Bıyık** · [biyik.dev](https://biyik.dev) · metin
   macOS'ta öndeki sekme adresi kullanılır); eklenti kuruluysa videonun altında ayrıca MP3 / MP4 düğmesi görünür
 - **Proxy desteği:** sistem ayarı, doğrudan bağlantı ya da özel HTTP / HTTPS / SOCKS5 proxy
 - Uygulama içinden geliştiriciye **e-posta** ya da **WhatsApp** ile ulaşma
-- **Otomatik güncelleme:** yeni sürüm arka planda indirilir ve kurulur
+- **Güncelleme bildirimi:** yeni sürüm çıktığında sorulur; Şimdi Kur ya da Daha Sonra Kur
 - ffmpeg uygulamayla birlikte gelir; ek kurulum gerekmez
 
 ## Kurulum
@@ -51,7 +51,8 @@ Geliştirici: **Metin Faruk Bıyık** · [biyik.dev](https://biyik.dev) · metin
 4. Hepsini yeni bir GitHub Release olarak yayınlar
 
 Kurulu uygulamalar açılışta ve açıkken yarım saatte bir yeni sürümü denetler; yeni sürüm bulununca
-güncelleme penceresi kendiliğinden açılır ve üst çubuğun altında kalıcı bir güncelleme şeridi görünür. Ana/ara sürümü yükseltmek için `byk_music/__init__.py` dosyasını düzenleyin
+güncelleme penceresi açılır ve kullanıcıya sorulur: **Şimdi Kur** (indirip yeniden başlatır) ya da **Daha Sonra Kur**
+(uygulama kapanınca kurulur). Pencere kapatılırsa hiçbir şey kurulmaz; üstteki güncelleme şeridi hatırlatmaya devam eder. Ana/ara sürümü yükseltmek için `byk_music/__init__.py` dosyasını düzenleyin
 (örn. `1.1.0`).
 
 ### Kod imzalama (Windows)

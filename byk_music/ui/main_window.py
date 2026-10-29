@@ -81,6 +81,9 @@ class MainWindow(QMainWindow):
         self._pending_update = None   # indirilmiş, kurulmayı bekleyen güncelleme dosyası
         self._update_dialog_open = False
         self._update_prompted = False  # bu oturumda yeni sürüm penceresi gösterildi mi
+        self._install_on_exit = False  # kullanıcı "Daha Sonra Kur" dedi
+        self._ask_when_ready = False   # kullanıcı indirmeyi arka plana aldı; bitince sor
+        self._active_update_dialog = None
         self._installing = False
         self._last_clip = ""
         self._new_history = 0
@@ -300,25 +303,28 @@ class MainWindow(QMainWindow):
             self.update_banner.hide()
             return
         v = self.update_info["version"]
-        if self._pending_update:
-            self.banner_text.setText(f"<b>BYK Music v{v}</b> kurulmaya hazır. Yeniden başlatınca yeni sürüm açılır.")
-            self.banner_btn.setText("Yeniden Başlat")
-            set_icon(self.banner_btn, "restart", "#FFFFFF", 15)
+        if self._install_on_exit:
+            ready = "hazır" if self._pending_update else "hazırlanıyor"
+            self.banner_text.setText(f"<b>BYK Music v{v}</b> uygulamayı kapattığınızda kurulacak ({ready}).")
+        elif self._pending_update:
+            self.banner_text.setText(f"<b>BYK Music v{v}</b> indirildi ve kurulmaya hazır.")
         elif progress is not None:
-            self.banner_text.setText(f"<b>BYK Music v{v}</b> indiriliyor… %{progress}")
-            self.banner_btn.setText("Ayrıntılar")
-            set_icon(self.banner_btn, "download", "#FFFFFF", 15)
+            self.banner_text.setText(f"<b>BYK Music v{v}</b> hazırlanıyor… %{progress}")
         else:
             self.banner_text.setText(f"<b>Yeni sürüm: BYK Music v{v}</b> · kurulu sürüm v{__version__}")
-            self.banner_btn.setText("Şimdi Güncelle")
+        if self._pending_update:
+            self.banner_btn.setText("Şimdi Kur")
+            set_icon(self.banner_btn, "restart", "#FFFFFF", 15)
+        else:
+            self.banner_btn.setText("Güncelle…")
             set_icon(self.banner_btn, "download", "#FFFFFF", 15)
         self.update_banner.show()
 
     def _banner_action(self):
         if self._pending_update:
-            self._install_pending(relaunch=True)
+            self._install_now()
         else:
-            self._prompt_update(auto=True)
+            self._prompt_update()
 
     def _build_download_page(self) -> QWidget:
         page = QWidget()
@@ -607,8 +613,8 @@ class MainWindow(QMainWindow):
             ("clipboard_watch", "Panodaki YouTube bağlantısını otomatik algıla",
              "Uygulamaya geri döndüğünüzde kopyaladığınız bağlantı kutuya eklenir."),
             ("auto_update", "Güncellemeleri otomatik denetle", "Açılışta ve uygulama açıkken yarım saatte bir denetlenir; yeni sürüm bulununca güncelleme penceresi açılır."),
-            ("auto_install", "Güncellemeleri arka planda indir ve kur",
-             "Yeni sürüm indirildiğinde hemen ya da uygulama kapanırken kurulur."),
+            ("auto_install", "Yeni sürümü arka planda önceden indir",
+             "Kurulum için her zaman size sorulur: Şimdi Kur ya da Daha Sonra Kur (uygulama kapanınca)."),
         ])
         lay.addWidget(box)
 
@@ -1345,7 +1351,7 @@ class MainWindow(QMainWindow):
                         "warning", action=("Yeniden dene", self.retry_failed), system=True)
         QTimer.singleShot(6000, lambda: self.dl_worker is None and self._set_status("Hazır", "neutral"))
         if self.update_info and not self._update_prompted:
-            QTimer.singleShot(2500, lambda: self.dl_worker is None and self._prompt_update(auto=True))
+            QTimer.singleShot(2500, lambda: self.dl_worker is None and self._prompt_update())
         QApplication.alert(self)
 
     # ============================================================= geçmiş
@@ -1421,9 +1427,7 @@ class MainWindow(QMainWindow):
         DeveloperDialog(self.logbuf, self).exec()
 
     def _on_update_nav(self):
-        if self._pending_update:
-            self._update_ready()
-        elif self.update_info:
+        if self.update_info:
             self._prompt_update()
         else:
             self.check_updates(silent=False)
@@ -1444,6 +1448,7 @@ class MainWindow(QMainWindow):
         return bool(self.update_info and self.update_info["url"] and updater.is_frozen())
 
     def _on_update_available(self, info: dict):
+        """Yeni sürüm bulundu. Kurulum yalnızca kullanıcının seçimiyle yapılır."""
         if self.update_info and self.update_info["version"] == info["version"]:
             return  # bu sürüm zaten işleniyor
         self.update_info = info
@@ -1453,48 +1458,47 @@ class MainWindow(QMainWindow):
         if self.tray and self.tray.isVisible() and not self.isActiveWindow():
             self.tray.showMessage("Yeni sürüm hazır", f"BYK Music v{info['version']} yayınlandı.",
                                   QSystemTrayIcon.Information, 6000)
+        if self.settings["auto_install"] and self._can_self_update():
+            self._download_update()  # yalnızca önceden indirir; kurmak için her zaman sorulur
         if self.dl_worker:
             # kullanıcının indirmesini bölme: şerit görünür, pencere indirmeler bitince açılır
-            self.notify("Yeni sürüm hazır", f"v{info['version']} · indirmeleriniz bitince güncelleme penceresi açılacak.",
-                        "info")
+            self.notify("Yeni sürüm hazır", f"v{info['version']} · indirmeleriniz bitince size sorulacak.", "info")
             return
-        QTimer.singleShot(400, lambda: self._prompt_update(auto=True))
+        QTimer.singleShot(400, self._prompt_update)
 
-    def _prompt_update(self, auto: bool = False):
-        """Güncelleme penceresini açar. auto: otomatik kurulum açıksa indirmeyi hemen başlatır."""
+    def _prompt_update(self):
+        """Güncelleme penceresini açar ve kullanıcıya ne zaman kurulacağını sorar."""
         if self._update_dialog_open or not self.update_info:
-            return
-        if self._pending_update:
-            self._update_ready_dialog()
             return
         self._update_prompted = True
         self._update_dialog_open = True
         self._bring_front()
-        dlg = UpdateDialog(self.update_info, __version__, self)
+        dlg = UpdateDialog(self.update_info, __version__, self, ready=bool(self._pending_update))
         dlg.update_requested.connect(lambda: self._start_update_download(dlg))
-        downloading = self.up_dl_worker and self.up_dl_worker.isRunning()
-        if downloading:
-            dlg.set_downloading()
-            self.up_dl_worker.progress.connect(dlg.set_progress)
-        elif auto and self.settings["auto_install"] and self._can_self_update():
-            QTimer.singleShot(250, lambda: self._start_update_download(dlg))
+        self._active_update_dialog = dlg
         dlg.exec()
+        self._active_update_dialog = None
         self._update_dialog_open = False
         self._after_update_dialog(dlg)
 
     def _start_update_download(self, dlg: UpdateDialog):
+        """Kullanıcı Şimdi Kur'a bastı ve dosya henüz hazır değil: indir, bitince kur."""
         if not self._can_self_update():
             QDesktopServices.openUrl(QUrl(self.update_info["page"]))
             dlg.reject()
             return
         if self._pending_update:
-            dlg.set_ready()
+            dlg.accept()
             return
         dlg.set_downloading()
-        self._download_update(dlg)
+        running = self.up_dl_worker and self.up_dl_worker.isRunning()
+        if running:  # önceden indirme sürüyor: aynı indirmeyi pencerede göster
+            self.up_dl_worker.progress.connect(dlg.set_progress)
+        else:
+            self._download_update(dlg)
 
     def _download_update(self, dlg: UpdateDialog | None = None):
-        """Güncellemeyi indirir; pencere açıksa ilerleme orada gösterilir."""
+        """Güncelleme dosyasını indirir. Kurulum burada yapılmaz."""
         if self.up_dl_worker and self.up_dl_worker.isRunning():
             return
         info = self.update_info
@@ -1505,52 +1509,53 @@ class MainWindow(QMainWindow):
 
         def failed(msg):
             self._refresh_banner()
-            if dlg and dlg.isVisible():
-                dlg.set_failed(msg)
-            else:
-                self.notify("Güncelleme indirilemedi", msg[:160], "error",
-                            action=("İndirme sayfası", lambda: QDesktopServices.openUrl(QUrl(info["page"]))))
+            box = self._active_update_dialog
+            if box and box.isVisible():
+                box.set_failed(msg)
+            elif self._install_on_exit or self._ask_when_ready:
+                self.notify("Güncelleme indirilemedi", msg[:160], "error")
 
         def done(path):
             self._pending_update = path
             self.nav_update.set_badge("Hazır", "success")
             self._refresh_banner()
-            if dlg and dlg.isVisible():
-                dlg.set_ready()
-            else:
-                self._update_ready()
+            box = self._active_update_dialog
+            if box and box.isVisible():
+                if box.choice == "now":
+                    box.accept()  # kullanıcı Şimdi Kur demişti → pencere kapanınca kurulur
+                else:
+                    box.set_ready()
+            elif self._ask_when_ready:
+                self._ask_when_ready = False
+                if not self.dl_worker:
+                    QTimer.singleShot(300, self._prompt_update)
 
         self.up_dl_worker.failed.connect(failed)
         self.up_dl_worker.done.connect(done)
         self.up_dl_worker.start()
 
-    def _update_ready(self):
-        version = self.update_info["version"]
-        self.nav_update.set_badge("Hazır", "success")
-        if self.dl_worker:
-            self.notify("Güncelleme hazır", f"v{version} indirildi; uygulama kapanırken kurulacak.", "success",
-                        action=("Ayrıntılar", self._update_ready_dialog), system=True)
-            return
-        self._update_ready_dialog()
-
-    def _update_ready_dialog(self):
-        if self._update_dialog_open:
-            return
-        self._update_dialog_open = True
-        self._update_prompted = True
-        self._bring_front()
-        dlg = UpdateDialog(self.update_info, __version__, self, ready=True)
-        dlg.exec()
-        self._update_dialog_open = False
-        self._after_update_dialog(dlg)
-
     def _after_update_dialog(self, dlg: UpdateDialog):
-        if dlg.choice == "install_now":
-            self._install_pending(relaunch=True)
-        elif dlg.choice == "install_on_exit":
-            self.notify("Güncelleme bekliyor", "Yeni sürüm uygulama kapanırken kurulacak.", "info")
-        elif dlg.choice == "update" and self.up_dl_worker and self.up_dl_worker.isRunning():
-            self.notify("Güncelleme indiriliyor", "İndirme bitince size haber verilecek.", "info")
+        if dlg.choice == "now" and self._pending_update:
+            self._install_now()
+        elif dlg.choice == "later":
+            self._install_on_exit = True
+            if not self._pending_update and self._can_self_update():
+                self._download_update()
+            self._refresh_banner()
+            self.notify("Güncelleme planlandı", "Yeni sürüm, uygulamayı kapattığınızda kurulacak.", "info")
+        elif dlg.choice == "background":
+            self._ask_when_ready = True  # indirme bitince yeniden sorulur
+            self.notify("Güncelleme indiriliyor", "İndirme bitince kurulum için size sorulacak.", "info")
+
+    def _install_now(self):
+        if self.dl_worker and QMessageBox.question(
+                self, "Güncellemeyi kur",
+                "Süren indirmeler durdurulacak ve uygulama yeniden başlatılacak. Devam edilsin mi?") != QMessageBox.Yes:
+            return
+        if self.dl_worker:
+            self.dl_worker.cancel()
+            self.dl_worker.wait(3000)
+        self._install_pending(relaunch=True)
 
     def _install_pending(self, relaunch: bool) -> bool:
         if not self._pending_update or self._installing:
@@ -1576,5 +1581,6 @@ class MainWindow(QMainWindow):
         self.bridge.stop()
         self._stop_watcher()
         self.bubble.close()
-        self._install_pending(relaunch=False)
+        if self._install_on_exit:  # yalnızca kullanıcı "Daha Sonra Kur" dediyse
+            self._install_pending(relaunch=False)
         event.accept()
