@@ -152,6 +152,7 @@ class DeveloperDialog(QDialog):
             ("Paketlenmiş (frozen)", "evet" if getattr(sys, "frozen", False) else "hayır"),
         ]
         w = QTextBrowser()
+        w.setObjectName("sysInfo")
         w.setHtml("<table cellpadding='6'>" + "".join(
             f"<tr><td style='color:#64748B'>{k}</td><td>{v}</td></tr>" for k, v in info) + "</table>")
         return w

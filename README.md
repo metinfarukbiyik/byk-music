@@ -45,7 +45,8 @@ Geliştirici: **Metin Faruk Bıyık** · [biyik.dev](https://biyik.dev) · metin
 
 1. Sürüm numarasını belirler (`byk_music/__init__.py` içindeki `ana.ara` + derleme numarası, örn. `1.0.12`)
 2. Windows kurulum programını (Inno Setup) ve macOS uygulamasını derler
-3. Hepsini yeni bir GitHub Release olarak yayınlar
+3. Commit mesajlarından Türkçe sürüm notu üretir (commit'in ilk satırı başlık, `- ` ile başlayan satırlar madde olur)
+4. Hepsini yeni bir GitHub Release olarak yayınlar
 
 Kurulu uygulamalar açılışta ve açıkken saatte bir yeni sürümü denetler, bildirim gösterir,
 güncellemeyi indirir ve kurar. Ana/ara sürümü yükseltmek için `byk_music/__init__.py` dosyasını düzenleyin

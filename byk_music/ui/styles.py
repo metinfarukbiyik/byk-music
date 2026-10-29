@@ -103,6 +103,8 @@ QLabel#heroName {{ font-size: 22px; font-weight: 800; }}
 QFrame#devHero QLabel#heroSub {{ color: {SIDEBAR_TEXT}; font-size: 13px; }}
 QFrame#devHero QLabel#heroAvatar {{ background: {ACCENT}; color: white; border: 3px solid #3B5EA8; border-radius: 38px;
                      font-size: 26px; font-weight: 800; }}
+QFrame#devHero QLabel#heroChipNew {{ background: {SUCCESS}; color: white; border-radius: 10px; padding: 3px 10px;
+                                     font-size: 11px; font-weight: 800; }}
 QFrame#devHero QLabel#heroChip {{ background: rgba(255, 255, 255, 34); color: #DCE6FF; border-radius: 10px; padding: 3px 10px;
                    font-size: 11px; font-weight: 700; }}
 QFrame#loadingHead {{ background: transparent; border: none; border-bottom: 1px solid {BORDER}; }}
@@ -184,7 +186,8 @@ QTabWidget::pane {{ border: 1px solid {BORDER}; background: {SURFACE}; border-ra
 QTabBar::tab {{ background: transparent; color: {MUTED}; padding: 8px 16px; font-weight: 600;
                 border-bottom: 2px solid transparent; }}
 QTabBar::tab:selected {{ color: {ACCENT}; border-bottom-color: {ACCENT}; }}
-QPlainTextEdit#logView, QTextBrowser {{ background: {SURFACE}; border: none; font-family: Menlo, Consolas, monospace;
+QTextBrowser#releaseNotes {{ background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 10px; padding: 10px 12px; }}
+QPlainTextEdit#logView, QTextBrowser#sysInfo {{ background: {SURFACE}; border: none; font-family: Menlo, Consolas, monospace;
                                 font-size: 12px; padding: 6px; }}
 QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px; }}
 QScrollBar::handle:vertical {{ background: #D0D5DD; border-radius: 4px; min-height: 30px; }}

@@ -9,7 +9,7 @@ from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QFileDialog, QFrame,
                                QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
-                               QProgressBar, QProgressDialog, QPushButton, QScrollArea, QStackedWidget,
+                               QProgressBar, QPushButton, QScrollArea, QStackedWidget,
                                QSystemTrayIcon,
                                QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
@@ -31,6 +31,7 @@ from .icons import icon, set_icon
 from .multilink import MultiLinkDialog, find_links
 from .styles import ACCENT, app_icon
 from .toast import ToastManager
+from .update_dialog import UpdateDialog
 from .widgets import Badge, EmptyState, LoadingView, NavButton, Segmented, card, field, repolish
 
 YT_RE = re.compile(r"https?://(www\.|m\.|music\.)?(youtube\.com|youtu\.be)/\S+")
@@ -1341,52 +1342,51 @@ class MainWindow(QMainWindow):
         self.nav_update.set_badge("Yeni", "success")
         if self._can_self_update() and self.settings["auto_install"]:
             self.notify("Yeni sürüm bulundu", f"v{info['version']} arka planda indiriliyor…", "info", system=True)
-            self._download_update(interactive=False)
+            self._download_update()
         else:
             self.notify(f"Yeni sürüm: v{info['version']}", "Yenilikleri görmek ve güncellemek için tıklayın.",
                         "info", action=("Güncelle", self._prompt_update), system=True)
 
     def _prompt_update(self):
-        info = self.update_info
-        box = QMessageBox(self)
-        box.setWindowTitle("Yeni sürüm var")
-        box.setText(f"{APP_NAME} v{info['version']} yayınlandı (kurulu: v{__version__}).")
-        box.setInformativeText(info["notes"][:800] or "Sürüm notu yok.")
-        update_btn = box.addButton("Şimdi Güncelle", QMessageBox.AcceptRole)
-        box.addButton("Daha Sonra", QMessageBox.RejectRole)
-        box.exec()
-        if box.clickedButton() is not update_btn:
-            return
-        if self._can_self_update():
-            self._download_update(interactive=True)
-        else:
-            QDesktopServices.openUrl(QUrl(info["page"]))
+        dlg = UpdateDialog(self.update_info, __version__, self)
+        dlg.update_requested.connect(lambda: self._start_update_download(dlg))
+        dlg.exec()
+        self._after_update_dialog(dlg)
 
-    def _download_update(self, interactive: bool):
+    def _start_update_download(self, dlg: UpdateDialog):
+        if not self._can_self_update():
+            QDesktopServices.openUrl(QUrl(self.update_info["page"]))
+            dlg.reject()
+            return
+        if self._pending_update:
+            dlg.set_ready()
+            return
+        dlg.set_downloading()
+        self._download_update(dlg)
+
+    def _download_update(self, dlg: UpdateDialog | None = None):
+        """Güncellemeyi indirir; pencere açıksa ilerleme orada gösterilir."""
         if self.up_dl_worker and self.up_dl_worker.isRunning():
             return
         info = self.update_info
         self.up_dl_worker = updater.UpdateDownloadWorker(info["url"], info["name"], url_opener(self.settings))
-        dlg = None
-        if interactive:
-            dlg = QProgressDialog("Güncelleme indiriliyor…", None, 0, 100, self)
-            dlg.setWindowTitle(APP_NAME)
-            dlg.setWindowModality(Qt.WindowModal)
-            dlg.setAutoClose(False)
-            dlg.show()
-            self.up_dl_worker.progress.connect(dlg.setValue)
+        if dlg:
+            self.up_dl_worker.progress.connect(dlg.set_progress)
 
         def failed(msg):
-            if dlg:
-                dlg.close()
-            self.notify("Güncelleme indirilemedi", msg[:160], "error",
-                        action=("İndirme sayfası", lambda: QDesktopServices.openUrl(QUrl(info["page"]))))
+            if dlg and dlg.isVisible():
+                dlg.set_failed(msg)
+            else:
+                self.notify("Güncelleme indirilemedi", msg[:160], "error",
+                            action=("İndirme sayfası", lambda: QDesktopServices.openUrl(QUrl(info["page"]))))
 
         def done(path):
-            if dlg:
-                dlg.close()
             self._pending_update = path
-            self._update_ready()
+            self.nav_update.set_badge("Hazır", "success")
+            if dlg and dlg.isVisible():
+                dlg.set_ready()
+            else:
+                self._update_ready()
 
         self.up_dl_worker.failed.connect(failed)
         self.up_dl_worker.done.connect(done)
@@ -1397,17 +1397,22 @@ class MainWindow(QMainWindow):
         self.nav_update.set_badge("Hazır", "success")
         if self.dl_worker:
             self.notify("Güncelleme hazır", f"v{version} indirildi; uygulama kapanırken kurulacak.", "success",
-                        system=True)
+                        action=("Ayrıntılar", self._update_ready_dialog), system=True)
             return
-        box = QMessageBox(self)
-        box.setWindowTitle("Güncelleme hazır")
-        box.setText(f"{APP_NAME} v{version} kurulmaya hazır.")
-        box.setInformativeText("Uygulama kısa bir süre kapanıp yeni sürümle yeniden açılacak.")
-        now = box.addButton("Şimdi Yeniden Başlat", QMessageBox.AcceptRole)
-        box.addButton("Kapanınca Kur", QMessageBox.RejectRole)
-        box.exec()
-        if box.clickedButton() is now:
+        self._update_ready_dialog()
+
+    def _update_ready_dialog(self):
+        dlg = UpdateDialog(self.update_info, __version__, self, ready=True)
+        dlg.exec()
+        self._after_update_dialog(dlg)
+
+    def _after_update_dialog(self, dlg: UpdateDialog):
+        if dlg.choice == "install_now":
             self._install_pending(relaunch=True)
+        elif dlg.choice == "install_on_exit":
+            self.notify("Güncelleme bekliyor", "Yeni sürüm uygulama kapanırken kurulacak.", "info")
+        elif dlg.choice == "update" and self.up_dl_worker and self.up_dl_worker.isRunning():
+            self.notify("Güncelleme indiriliyor", "İndirme bitince size haber verilecek.", "info")
 
     def _install_pending(self, relaunch: bool) -> bool:
         if not self._pending_update or self._installing:
