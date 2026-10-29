@@ -93,6 +93,18 @@ QLabel#emptyIcon {{ background: {ACCENT_SOFT}; color: {ACCENT}; border-radius: 2
 QFrame#card {{ background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 10px; }}
 QScrollArea#pageScroll {{ background: {BG}; border: none; }}
 QScrollArea#pageScroll > QWidget > QWidget#page {{ background: {BG}; }}
+QPushButton#contactCard {{ background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 12px; padding: 0; }}
+QPushButton#contactCard:hover {{ border-color: {ACCENT}; background: #FAFBFF; }}
+QLabel#cardValue {{ font-size: 14px; font-weight: 700; color: {TEXT}; }}
+QFrame#devHero {{ border: none; border-radius: 14px;
+                  background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #0F1B2D, stop:1 #1B2F55); }}
+QFrame#devHero QLabel {{ color: white; background: transparent; }}
+QLabel#heroName {{ font-size: 22px; font-weight: 800; }}
+QFrame#devHero QLabel#heroSub {{ color: {SIDEBAR_TEXT}; font-size: 13px; }}
+QFrame#devHero QLabel#heroAvatar {{ background: {ACCENT}; color: white; border: 3px solid #3B5EA8; border-radius: 38px;
+                     font-size: 26px; font-weight: 800; }}
+QFrame#devHero QLabel#heroChip {{ background: rgba(255, 255, 255, 34); color: #DCE6FF; border-radius: 10px; padding: 3px 10px;
+                   font-size: 11px; font-weight: 700; }}
 QFrame#loadingHead {{ background: transparent; border: none; border-bottom: 1px solid {BORDER}; }}
 QFrame#bubble {{ background: {SURFACE}; border: 1px solid #D0D5DD; border-radius: 14px; }}
 QLabel#bubbleTitle {{ font-size: 14px; font-weight: 700; }}
@@ -105,6 +117,7 @@ QPushButton:disabled {{ color: #98A2B3; background: #F2F4F7; border-color: #E4E7
 QPushButton#primary {{ background: {ACCENT}; border-color: {ACCENT}; color: white; padding: 8px 18px; }}
 QPushButton#primary:hover {{ background: {ACCENT_HOVER}; }}
 QPushButton#primary:disabled {{ background: #A4BCFD; border-color: #A4BCFD; color: white; }}
+QPushButton#iconBtn {{ padding: 6px; min-width: 22px; }}
 QPushButton#danger {{ color: #B42318; border-color: #FDA29B; }}
 QPushButton#danger:hover {{ background: #FEF3F2; }}
 QPushButton#whatsapp {{ background: #25D366; border-color: #25D366; color: white; padding: 8px 18px; }}

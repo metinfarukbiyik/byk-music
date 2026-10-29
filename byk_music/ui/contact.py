@@ -3,12 +3,14 @@ from urllib.parse import quote
 
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QGuiApplication
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit,
                                QPlainTextEdit, QPushButton, QVBoxLayout, QWidget)
 
 from .. import __version__
 from ..config import APP_NAME, DEVELOPER
-from .widgets import card
+from .icons import set_icon
+from .styles import ACCENT, ACCENT_SOFT
+from .widgets import ContactCard, card
 
 SUBJECTS = ["Genel soru", "Hata bildirimi", "Öneri / istek", "İş birliği"]
 
@@ -48,7 +50,7 @@ class ContactPage(QWidget):
 
         # --- geliştirici kartı
         prof = card()
-        prof.setFixedWidth(320)
+        prof.setFixedWidth(340)
         pl = QVBoxLayout(prof)
         pl.setContentsMargins(22, 22, 22, 22)
         pl.setSpacing(6)
@@ -67,28 +69,23 @@ class ContactPage(QWidget):
         pl.addWidget(brand)
         pl.addSpacing(14)
 
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(10)
-        grid.setVerticalSpacing(10)
-        contacts = [("E-posta", d["email"], f"mailto:{d['email']}"),
-                    ("Web", d["brand"], d["website"]),
-                    ("GitHub", d["github"].split("github.com/")[-1], d["github"])]
-        if d.get("whatsapp"):
-            wa = whatsapp_url()
-            contacts.insert(1, ("WhatsApp", "+" + "".join(c for c in d["whatsapp"] if c.isdigit()), wa.toString()))
-        for i, (label, text, url) in enumerate(contacts):
-            k = QLabel(label)
-            k.setObjectName("small")
-            v = QPushButton(text)
-            v.setObjectName("link")
-            v.setCursor(Qt.PointingHandCursor)
-            v.setToolTip(url)
-            v.clicked.connect(lambda _=False, u=url: QDesktopServices.openUrl(QUrl(u)))
-            grid.addWidget(k, i, 0)
-            grid.addWidget(v, i, 1, Qt.AlignLeft)
+        cards = [("email-outline", "E-posta", d["email"], f"mailto:{d['email']}", ACCENT, ACCENT_SOFT),
+                 ("web", "Web sitesi", d["brand"], d["website"], "#5925DC", "#EBE9FE")]
+        wa = whatsapp_url()
+        if wa:
+            number = "+" + "".join(c for c in d["whatsapp"] if c.isdigit())
+            cards.append(("whatsapp", "WhatsApp", number, wa.toString(), "#128C7E", "#DCFAE6"))
+        grid = QVBoxLayout()
+        grid.setSpacing(10)
+        for icon_name, label, value, url, color, soft in cards:
+            c = ContactCard(icon_name, label, value, color, soft)
+            c.setToolTip(url)
+            c.clicked.connect(lambda _=False, u=url: QDesktopServices.openUrl(QUrl(u)))
+            grid.addWidget(c)
         pl.addLayout(grid)
         pl.addStretch()
         copy = QPushButton("E-posta adresini kopyala")
+        set_icon(copy, "content-copy")
         copy.clicked.connect(self._copy_email)
         pl.addWidget(copy)
         row.addWidget(prof)
@@ -127,6 +124,7 @@ class ContactPage(QWidget):
         btns.addStretch()
         self.wa_btn = QPushButton("WhatsApp ile gönder")
         self.wa_btn.setObjectName("whatsapp")
+        set_icon(self.wa_btn, "whatsapp", "#FFFFFF")
         self.wa_btn.setCursor(Qt.PointingHandCursor)
         self.wa_btn.clicked.connect(self._send_whatsapp)
         if whatsapp_url() is None:
@@ -134,6 +132,7 @@ class ContactPage(QWidget):
             self.wa_btn.setToolTip("WhatsApp numarası henüz tanımlanmadı.")
         mail_btn = QPushButton("E-posta ile gönder")
         mail_btn.setObjectName("primary")
+        set_icon(mail_btn, "send", "#FFFFFF")
         mail_btn.setCursor(Qt.PointingHandCursor)
         mail_btn.clicked.connect(self._send_mail)
         btns.addWidget(self.wa_btn)

@@ -1,12 +1,15 @@
 import logging
+import queue
 import shutil
+import threading
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 
 import yt_dlp
 from PySide6.QtCore import QThread, Signal
 from yt_dlp.utils import sanitize_filename
 
-from .naming import SetTitlePP
+from .naming import CleanTitlePP, SetTitlePP
 
 log = logging.getLogger("byk.downloader")
 
@@ -56,8 +59,41 @@ def fmt_size(num) -> str:
     return f"{num:.1f} TB"
 
 
-class InfoWorker(QThread):
+def extract_items(url: str, base_opts: dict) -> dict:
     """Bağlantıdaki tek videoyu ya da listedeki tüm videoları (indirmeden) listeler."""
+    opts = {
+        **base_opts,
+        "quiet": True,
+        "no_warnings": True,
+        "extract_flat": "in_playlist",
+        "skip_download": True,
+        "logger": _YDLLogger(),
+    }
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+    if not info:
+        raise ValueError("Bağlantıdan bilgi alınamadı.")
+
+    entries = info.get("entries")
+    is_playlist = entries is not None
+    items = []
+    for e in (entries if is_playlist else [info]):
+        if not e:
+            continue
+        link = e.get("webpage_url") or e.get("url") or ""
+        if not link.startswith("http") and e.get("id"):
+            link = f"https://www.youtube.com/watch?v={e['id']}"
+        items.append({
+            "title": e.get("title") or e.get("id") or "(başlıksız)",
+            "url": link,
+            "duration": e.get("duration"),
+            "uploader": e.get("uploader") or e.get("channel") or "",
+        })
+    return {"is_playlist": is_playlist, "title": info.get("title") or "", "items": items}
+
+
+class InfoWorker(QThread):
+    """Tek bir bağlantıyı çözümler (liste sayfasının yerine geçer)."""
 
     result = Signal(dict)
     failed = Signal(str)
@@ -68,45 +104,36 @@ class InfoWorker(QThread):
         self.base_opts = base_opts or {}
 
     def run(self):
-        opts = {
-            **self.base_opts,
-            "quiet": True,
-            "no_warnings": True,
-            "extract_flat": "in_playlist",
-            "skip_download": True,
-            "logger": _YDLLogger(),
-        }
         try:
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(self.url, download=False)
+            self.result.emit(extract_items(self.url, self.base_opts))
         except Exception as exc:  # yt-dlp çok çeşitli hatalar fırlatır
             log.exception("Bilgi alınamadı")
             self.failed.emit(_clean_error(exc))
-            return
-        if not info:
-            self.failed.emit("Bağlantıdan bilgi alınamadı.")
-            return
 
-        entries = info.get("entries")
-        is_playlist = entries is not None
-        items = []
-        for e in (entries if is_playlist else [info]):
-            if not e:
-                continue
-            url = e.get("webpage_url") or e.get("url") or ""
-            if not url.startswith("http") and e.get("id"):
-                url = f"https://www.youtube.com/watch?v={e['id']}"
-            items.append({
-                "title": e.get("title") or e.get("id") or "(başlıksız)",
-                "url": url,
-                "duration": e.get("duration"),
-                "uploader": e.get("uploader") or e.get("channel") or "",
-            })
-        self.result.emit({
-            "is_playlist": is_playlist,
-            "title": info.get("title") or "",
-            "items": items,
-        })
+
+class MultiInfoWorker(QThread):
+    """Birden fazla bağlantıyı paralel çözümler; her sonuç geldikçe bildirir."""
+
+    resolved = Signal(object, dict)   # anahtar, extract_items sonucu
+    failed = Signal(object, str)      # anahtar, hata
+
+    def __init__(self, tasks: list[tuple[object, str]], base_opts: dict | None = None, workers: int = 4):
+        super().__init__()
+        self.tasks = tasks
+        self.base_opts = base_opts or {}
+        self.workers = workers
+
+    def run(self):
+        def one(key, url):
+            try:
+                self.resolved.emit(key, extract_items(url, self.base_opts))
+            except Exception as exc:
+                log.warning("Bilgi alınamadı (%s): %s", url, exc)
+                self.failed.emit(key, _clean_error(exc))
+
+        with ThreadPoolExecutor(max_workers=self.workers) as pool:
+            for key, url in self.tasks:
+                pool.submit(one, key, url)
 
 
 def _clean_error(exc: Exception) -> str:
@@ -125,34 +152,54 @@ def _clean_error(exc: Exception) -> str:
 
 
 class DownloadWorker(QThread):
-    """Seçilen satırları sırayla indirir."""
+    """İndirme kuyruğu: aynı anda en fazla `workers` öğe indirilir.
+
+    İndirme sürerken add_jobs() ile yeni işler eklenebilir, set_workers() ile eşzamanlı
+    indirme sayısı değiştirilebilir. Kuyruk boşalıp tüm işler bitince finished_all yayınlanır.
+    """
 
     progress = Signal(int, float, str)   # satır, yüzde, açıklama
     state = Signal(int, str, str)        # satır, durum (active/processing/done/error/cancelled), mesaj
     saved = Signal(int, str)             # satır, son dosya yolu
     finished_all = Signal()
 
-    def __init__(self, jobs: list[dict], opts: dict, base_opts: dict | None = None):
-        """jobs: [{row, url, index}], opts: biçim/kalite/klasör ayarları, base_opts: proxy/oturum."""
+    def __init__(self, jobs: list[dict], opts: dict, base_opts: dict | None = None, workers: int = 3):
         super().__init__()
-        self.jobs = jobs
         self.opts = opts
         self.base_opts = base_opts or {}
+        self.workers = max(1, workers)
+        self._queue: queue.Queue = queue.Queue()
+        self._lock = threading.Lock()
+        self._closed = False
         self._cancel = False
+        for job in jobs:
+            self._queue.put(job)
+
+    def add_jobs(self, jobs: list[dict]) -> bool:
+        """Çalışan kuyruğa iş ekler; kuyruk kapanmışsa False döner."""
+        with self._lock:
+            if self._closed or self._cancel:
+                return False
+            for job in jobs:
+                self._queue.put(job)
+            return True
+
+    def set_workers(self, n: int):
+        self.workers = max(1, min(int(n), 8))
 
     def cancel(self):
         self._cancel = True
 
-    def _build_opts(self, job: dict) -> dict:
-        """job: {row, url, index, format?, name?, single?} — biçim ve ad iş başına değişebilir."""
+    def _build_opts(self, job: dict, ctx: dict) -> dict:
+        """job: {row, url, index, format, name?, playlist_title?, clean?} — ayarlar iş başına."""
         o = self.opts
         row = job["row"]
-        in_playlist = o["is_playlist"] and not job.get("single")
+        playlist_title = job.get("playlist_title")
         out_dir = Path(o["download_dir"])
-        if in_playlist and o["playlist_folder"] and o["playlist_title"]:
-            out_dir = out_dir / sanitize_filename(o["playlist_title"])
+        if playlist_title and o["playlist_folder"]:
+            out_dir = out_dir / sanitize_filename(playlist_title)
         out_dir.mkdir(parents=True, exist_ok=True)
-        prefix = f"{job['index']:02d} - " if in_playlist and o["number_prefix"] else ""
+        prefix = f"{job['index']:02d} - " if playlist_title and o["number_prefix"] else ""
         fmt_kind = job.get("format") or o["format"]
 
         def hook(d):
@@ -171,7 +218,7 @@ class DownloadWorker(QThread):
                     txt += f"  •  {int(eta)} sn"
                 self.progress.emit(row, pct, txt)
             elif d["status"] == "finished":
-                self._last_path = d.get("filename")
+                ctx["path"] = d.get("filename")
                 self.progress.emit(row, 100, "İndirme bitti")
 
         def pp_hook(d):
@@ -180,7 +227,7 @@ class DownloadWorker(QThread):
             elif d["status"] == "finished":
                 path = (d.get("info_dict") or {}).get("filepath")
                 if path:
-                    self._last_path = path
+                    ctx["path"] = path
 
         opts = {
             **self.base_opts,
@@ -222,28 +269,57 @@ class DownloadWorker(QThread):
             opts["postprocessors"] = [{"key": "FFmpegMetadata", "add_metadata": True}]
         return opts
 
-    def run(self):
-        for job in self.jobs:
-            row = job["row"]
+    def _run_job(self, job: dict):
+        row = job["row"]
+        if self._cancel:
+            self.state.emit(row, "cancelled", "İptal edildi")
+            return
+        self.state.emit(row, "active", "Başlıyor…")
+        ctx = {"path": None}
+        try:
+            with yt_dlp.YoutubeDL(self._build_opts(job, ctx)) as ydl:
+                if job.get("name"):
+                    ydl.add_post_processor(SetTitlePP(job["name"]), when="pre_process")
+                elif job.get("clean"):
+                    ydl.add_post_processor(CleanTitlePP(), when="pre_process")
+                ydl.download([job["url"]])
+            if ctx["path"]:
+                self.saved.emit(row, ctx["path"])
+            self.state.emit(row, "done", "Tamamlandı")
+        except Cancelled:
+            self.state.emit(row, "cancelled", "İptal edildi")
+        except Exception as exc:
             if self._cancel:
                 self.state.emit(row, "cancelled", "İptal edildi")
-                continue
-            self.state.emit(row, "active", "Başlıyor…")
-            self._last_path = None
-            try:
-                with yt_dlp.YoutubeDL(self._build_opts(job)) as ydl:
-                    if job.get("name"):
-                        ydl.add_post_processor(SetTitlePP(job["name"]), when="pre_process")
-                    ydl.download([job["url"]])
-                if self._last_path:
-                    self.saved.emit(row, self._last_path)
-                self.state.emit(row, "done", "Tamamlandı")
-            except Cancelled:
-                self.state.emit(row, "cancelled", "İptal edildi")
-            except Exception as exc:
+            else:
+                log.exception("İndirme hatası: %s", job["url"])
+                self.state.emit(row, "error", _clean_error(exc)[:200])
+
+    def run(self):
+        running = set()
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            while True:
+                while len(running) < self.workers and not self._cancel:
+                    try:
+                        job = self._queue.get_nowait()
+                    except queue.Empty:
+                        break
+                    running.add(pool.submit(self._run_job, job))
                 if self._cancel:
-                    self.state.emit(row, "cancelled", "İptal edildi")
-                else:
-                    log.exception("İndirme hatası: %s", job["url"])
-                    self.state.emit(row, "error", _clean_error(exc)[:200])
+                    self._drain_cancelled()
+                if running:
+                    _, running = wait(running, timeout=0.25, return_when=FIRST_COMPLETED)
+                    continue
+                with self._lock:
+                    if self._queue.empty():
+                        self._closed = True
+                        break
         self.finished_all.emit()
+
+    def _drain_cancelled(self):
+        while True:
+            try:
+                job = self._queue.get_nowait()
+            except queue.Empty:
+                return
+            self.state.emit(job["row"], "cancelled", "İptal edildi")

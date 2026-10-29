@@ -19,7 +19,7 @@ _PIPE_TAIL = re.compile(r"\s*[|｜•·]\s*(?=[^|｜•·]*$).*$")
 _HASHTAG = re.compile(r"\s*#[\wÀ-ɏ]+")
 _EMOJI = re.compile("[\U0001F000-\U0001FAFF\U00002600-\U000027BF\U0000FE0F\U0000200D]+")
 _SPACES = re.compile(r"\s{2,}")
-_QUALITY_TAIL = re.compile(r"(\s+(hd|hq|4k|8k|1080p|720p|2160p))+\s*$", re.IGNORECASE)
+_QUALITY_TAIL = re.compile(r"(\s+(hd|hq|4k|8k|1080p|720p|2160p|m/v|mv))+\s*$", re.IGNORECASE)
 _DASHES = re.compile(r"\s*[–—]\s*")
 
 
@@ -62,4 +62,12 @@ class SetTitlePP(PostProcessor):
             artist, track = self._title.split(" - ", 1)
             info["artist"] = artist.strip()
             info["track"] = track.strip()
+        return [], info
+
+
+class CleanTitlePP(PostProcessor):
+    """Ad önceden belirlenmemişse YouTube başlığını etiketlerden temizler."""
+
+    def run(self, info):
+        info["title"] = clean_title(info.get("title") or "")
         return [], info

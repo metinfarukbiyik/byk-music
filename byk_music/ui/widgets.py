@@ -303,3 +303,36 @@ class LoadingView(QFrame):
     def stop(self):
         self.spinner.stop()
         self.skeleton.stop()
+
+
+class ContactCard(QPushButton):
+    """İkonlu, tıklanabilir iletişim kartı (e-posta, web sitesi, WhatsApp)."""
+
+    def __init__(self, icon_name: str, label: str, value: str, color: str, soft: str):
+        super().__init__()
+        self.setObjectName("contactCard")
+        self.setCursor(Qt.PointingHandCursor)
+        self.setMinimumHeight(68)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(14, 12, 14, 12)
+        lay.setSpacing(12)
+        ic = QLabel()
+        ic.setFixedSize(42, 42)
+        ic.setAlignment(Qt.AlignCenter)
+        ic.setPixmap(pixmap(icon_name, 22, color))
+        ic.setStyleSheet(f"background: {soft}; border-radius: 10px;")
+        texts = QVBoxLayout()
+        texts.setSpacing(2)
+        k = QLabel(label.upper())
+        k.setObjectName("fieldLabel")
+        v = QLabel(value)
+        v.setObjectName("cardValue")
+        texts.addWidget(k)
+        texts.addWidget(v)
+        arrow = QLabel()
+        arrow.setPixmap(pixmap("open-in-new", 16, "#98A2B3"))
+        for w in (ic, k, v, arrow):
+            w.setAttribute(Qt.WA_TransparentForMouseEvents)
+        lay.addWidget(ic)
+        lay.addLayout(texts, 1)
+        lay.addWidget(arrow)

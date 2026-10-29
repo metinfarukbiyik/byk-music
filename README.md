@@ -10,7 +10,9 @@ Geliştirici: **Metin Faruk Bıyık** · [biyik.dev](https://biyik.dev) · metin
 
 - Tek video ya da oynatma listesi bağlantısı; listedeki parçaları görüp **istediklerini seçerek** indirme
 - **MP3** (128–320 kbps, kapak resmi ve etiket bilgisi) ve **MP4** (360p – 4K)
-- Biçim, kalite ve kayıt klasörü seçimi üst çubukta
+- **Çoklu bağlantı:** birden fazla video / liste bağlantısını tek seferde yapıştırıp listeye ekleme
+- **Eşzamanlı indirme:** aynı anda 1–5 dosya; indirme sürerken yeni bağlantılar kuyruğa eklenebilir
+- Biçim, kalite, eşzamanlı indirme sayısı ve kayıt klasörü seçimi üst çubukta
 - Satır bazında durum rozetleri, ilerleme çubukları, genel ilerleme, durdurma ve hatalıları yeniden deneme
 - Uygulama içi bildirimler ve sistem bildirimleri (indirme başladı / tamamlandı)
 - İndirme geçmişi, listede arama, panodaki YouTube bağlantısını otomatik algılama

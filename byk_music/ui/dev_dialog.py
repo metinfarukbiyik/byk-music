@@ -3,17 +3,18 @@ import platform
 import sys
 
 import yt_dlp
-from PySide6.QtCore import QObject, QUrl, Signal
+from PySide6.QtCore import QObject, Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QGuiApplication
-from PySide6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QPlainTextEdit, QPushButton,
-                               QTabWidget, QTextBrowser, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QPlainTextEdit,
+                               QPushButton, QTabWidget, QTextBrowser, QVBoxLayout, QWidget)
 
 from .. import __version__
-from ..config import APP_NAME, APP_TAGLINE, COPYRIGHT, DEVELOPER
+from ..config import APP_NAME, COPYRIGHT, DEVELOPER
 from ..core.downloader import ffmpeg_path
 from ..core.settings import config_dir
 from .contact import whatsapp_url
-from .styles import app_icon
+from .styles import ACCENT, ACCENT_SOFT, app_icon
+from .widgets import ContactCard
 
 
 class LogBuffer(QObject, logging.Handler):
@@ -39,7 +40,7 @@ class DeveloperDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(f"Geliştirici – {APP_NAME}")
         self.setWindowIcon(app_icon())
-        self.resize(640, 520)
+        self.resize(680, 600)
         self.logbuf = logbuf
 
         tabs = QTabWidget()
@@ -55,41 +56,69 @@ class DeveloperDialog(QDialog):
         d = DEVELOPER
         w = QWidget()
         lay = QVBoxLayout(w)
-        lay.setContentsMargins(24, 24, 24, 24)
-        lay.setSpacing(10)
+        lay.setContentsMargins(18, 18, 18, 18)
+        lay.setSpacing(16)
 
-        logo = QLabel()
-        logo.setPixmap(app_icon().pixmap(84, 84))
+        # --- üst kart: geliştirici kimliği
+        hero = QFrame()
+        hero.setObjectName("devHero")
+        hl = QHBoxLayout(hero)
+        hl.setContentsMargins(22, 22, 22, 22)
+        hl.setSpacing(18)
+        avatar = QLabel("".join(p[0] for p in d["name"].split()[:2]).upper())
+        avatar.setObjectName("heroAvatar")
+        avatar.setFixedSize(76, 76)
+        avatar.setAlignment(Qt.AlignCenter)
+        texts = QVBoxLayout()
+        texts.setSpacing(4)
         name = QLabel(d["name"])
-        name.setObjectName("h1")
-        title = QLabel(f"{d['title']} · {d['brand']}")
-        title.setObjectName("muted")
+        name.setObjectName("heroName")
+        sub = QLabel(f"{d['title']} · {d['brand']}")
+        sub.setObjectName("heroSub")
+        chips = QHBoxLayout()
+        chips.setSpacing(6)
+        for text in (f"{APP_NAME} v{__version__}", "Windows · macOS"):
+            c = QLabel(text)
+            c.setObjectName("heroChip")
+            chips.addWidget(c)
+        chips.addStretch()
+        texts.addWidget(name)
+        texts.addWidget(sub)
+        texts.addSpacing(6)
+        texts.addLayout(chips)
+        hl.addWidget(avatar)
+        hl.addLayout(texts, 1)
+        lay.addWidget(hero)
+
         about = QLabel(d["about"])
         about.setWordWrap(True)
-        ver = QLabel(f"{APP_NAME} · {APP_TAGLINE} · v{__version__}\n{COPYRIGHT}")
-        ver.setObjectName("muted")
-
-        lay.addWidget(logo)
-        lay.addWidget(name)
-        lay.addWidget(title)
-        lay.addSpacing(6)
+        about.setObjectName("muted")
         lay.addWidget(about)
-        lay.addSpacing(6)
-        lay.addWidget(ver)
+
+        # --- iletişim kartları
+        title = QLabel("İletişim")
+        title.setObjectName("h2")
+        lay.addWidget(title)
+        grid = QGridLayout()
+        grid.setSpacing(10)
+        cards = [ContactCard("email-outline", "E-posta", d["email"], ACCENT, ACCENT_SOFT),
+                 ContactCard("web", "Web sitesi", d["brand"], "#5925DC", "#EBE9FE")]
+        urls = [f"mailto:{d['email']}", d["website"]]
+        wa = whatsapp_url()
+        if wa:
+            cards.append(ContactCard("whatsapp", "WhatsApp", "Mesaj gönder", "#128C7E", "#DCFAE6"))
+            urls.append(wa.toString())
+        for i, (card_btn, url) in enumerate(zip(cards, urls)):
+            card_btn.setToolTip(url)
+            card_btn.clicked.connect(lambda _=False, u=url: QDesktopServices.openUrl(QUrl(u)))
+            grid.addWidget(card_btn, i // 2, i % 2)
+        lay.addLayout(grid)
         lay.addStretch()
 
-        row = QHBoxLayout()
-        wa = whatsapp_url()
-        for label, url in (("E-posta", f"mailto:{d['email']}"), ("WhatsApp", wa.toString() if wa else ""),
-                           (d["brand"], d["website"]), ("GitHub", d["github"])):
-            if not url:
-                continue
-            b = QPushButton(label)
-            b.setToolTip(url)
-            b.clicked.connect(lambda _=False, u=url: QDesktopServices.openUrl(QUrl(u)))
-            row.addWidget(b)
-        row.addStretch()
-        lay.addLayout(row)
+        foot = QLabel(COPYRIGHT)
+        foot.setObjectName("small")
+        foot.setAlignment(Qt.AlignCenter)
+        lay.addWidget(foot)
         return w
 
     def _log_tab(self) -> QWidget:

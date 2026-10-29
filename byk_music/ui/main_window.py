@@ -17,7 +17,7 @@ from .. import __version__
 from ..config import APP_NAME, APP_TAGLINE
 from ..core import updater
 from ..core.bridge import PORT, BrowserBridge
-from ..core.downloader import DownloadWorker, InfoWorker, ffmpeg_path, fmt_duration
+from ..core.downloader import DownloadWorker, InfoWorker, MultiInfoWorker, ffmpeg_path, fmt_duration
 from ..core.history import History, reveal_in_folder
 from ..core.links import analyze
 from ..core.naming import clean_title, safe_filename
@@ -28,6 +28,7 @@ from .bubble import DetectBubble
 from .contact import ContactPage
 from .dev_dialog import DeveloperDialog, LogBuffer
 from .icons import icon, set_icon
+from .multilink import MultiLinkDialog, find_links
 from .styles import ACCENT, app_icon
 from .toast import ToastManager
 from .widgets import Badge, EmptyState, LoadingView, NavButton, Segmented, card, field, repolish
@@ -44,6 +45,7 @@ STATES = {  # durum: (rozet metni, rozet türü)
     "cancelled": ("İptal", "neutral"),
 }
 FINAL = ("done", "error", "cancelled")
+BUSY = ("queued", "active", "processing")
 VIDEO_QUALITIES = [("En iyi", "best"), ("2160p (4K)", "2160"), ("1440p", "1440"), ("1080p", "1080"),
                    ("720p", "720"), ("480p", "480"), ("360p", "360")]
 AUDIO_QUALITIES = ["320", "256", "192", "128"]
@@ -85,13 +87,14 @@ class MainWindow(QMainWindow):
         self._new_history = 0
         self._batch: list[int] = []
         self._cancelled = False
-        self._pending_rows: list[int] = []   # indirme sürerken eklenen satırlar
+        self._pending_rows: list[int] = []   # kuyruk kapanırken eklenen satırlar (yeni partide başlar)
+        self._resolvers: list[MultiInfoWorker] = []
         self._seen_urls: set[str] = set()     # balonda gösterilmiş bağlantılar
 
         self.setWindowTitle(f"{APP_NAME} – {APP_TAGLINE}")
         self.setWindowIcon(app_icon())
         self.resize(1180, 760)
-        self.setMinimumSize(980, 640)
+        self.setMinimumSize(1080, 660)
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -202,23 +205,27 @@ class MainWindow(QMainWindow):
         bar.setObjectName("topbar")
         lay = QHBoxLayout(bar)
         lay.setContentsMargins(28, 14, 28, 14)
-        lay.setSpacing(22)
+        lay.setSpacing(16)
 
         self.seg = Segmented([("MP3", "mp3"), ("MP4", "mp4")])
         self.seg.changed.connect(self._set_format)
         self.quality_combo = QComboBox()
-        self.quality_combo.setMinimumWidth(150)
+        self.quality_combo.setMinimumWidth(130)
         self.quality_combo.currentIndexChanged.connect(self._quality_changed)
 
         dir_row = QHBoxLayout()
         dir_row.setSpacing(6)
         self.dir_edit = QLineEdit(readOnly=True)
-        self.dir_edit.setMinimumWidth(220)
-        self.dir_btn = QPushButton("Değiştir")
-        set_icon(self.dir_btn, "folder-outline")
+        self.dir_edit.setMinimumWidth(170)
+        self.dir_btn = QPushButton()
+        self.dir_btn.setObjectName("iconBtn")
+        self.dir_btn.setToolTip("Kayıt klasörünü değiştir")
+        set_icon(self.dir_btn, "folder-edit-outline", size=18)
         self.dir_btn.clicked.connect(self.choose_dir)
-        open_btn = QPushButton("Aç")
-        set_icon(open_btn, "folder-open-outline")
+        open_btn = QPushButton()
+        open_btn.setObjectName("iconBtn")
+        open_btn.setToolTip("Kayıt klasörünü aç")
+        set_icon(open_btn, "folder-open-outline", size=18)
         open_btn.clicked.connect(self.open_dir)
         dir_row.addWidget(self.dir_edit, 1)
         dir_row.addWidget(self.dir_btn)
@@ -232,6 +239,13 @@ class MainWindow(QMainWindow):
 
         lay.addWidget(field("Biçim", self.seg))
         lay.addWidget(field("Kalite", self.quality_combo))
+        self.conc_combo = QComboBox()
+        for n in range(1, 6):
+            self.conc_combo.addItem(f"{n} dosya", n)
+        self.conc_combo.setToolTip("Aynı anda kaç dosyanın indirileceği. İndirme sürerken de değiştirilebilir.")
+        self.conc_combo.setCurrentIndex(max(self.conc_combo.findData(self.settings["concurrent"]), 0))
+        self.conc_combo.currentIndexChanged.connect(self._concurrency_changed)
+        lay.addWidget(field("Eşzamanlı", self.conc_combo))
         lay.addWidget(field("Kayıt klasörü", dir_row), 1)
         lay.addWidget(field("Durum", status_wrap))
         return bar
@@ -251,7 +265,7 @@ class MainWindow(QMainWindow):
         tl.setSpacing(8)
         self.url_edit = QLineEdit()
         self.url_edit.setObjectName("bigInput")
-        self.url_edit.setPlaceholderText("https://www.youtube.com/watch?v=…  ya da  …/playlist?list=…")
+        self.url_edit.setPlaceholderText("Video ya da liste bağlantısı · birden fazla bağlantıyı aynı anda yapıştırabilirsiniz")
         self.url_edit.setClearButtonEnabled(True)
         self.url_edit.addAction(icon("link-variant"), QLineEdit.LeadingPosition)
         self.url_edit.returnPressed.connect(self.fetch)
@@ -264,6 +278,11 @@ class MainWindow(QMainWindow):
         self.fetch_btn.clicked.connect(self.fetch)
         tl.addWidget(self.url_edit, 1)
         tl.addWidget(paste)
+        multi = QPushButton("Çoklu Ekle")
+        set_icon(multi, "playlist-plus")
+        multi.setToolTip("Birden fazla bağlantıyı tek seferde ekleyin")
+        multi.clicked.connect(self.open_multi_links)
+        tl.addWidget(multi)
         tl.addWidget(self.fetch_btn)
         lay.addWidget(top)
 
@@ -355,7 +374,7 @@ class MainWindow(QMainWindow):
         self.dl_btn = QPushButton("Seçilenleri İndir")
         self.dl_btn.setObjectName("primary")
         set_icon(self.dl_btn, "download", "#FFFFFF")
-        self.dl_btn.setMinimumWidth(210)
+        self.dl_btn.setMinimumWidth(220)
         self.dl_btn.setEnabled(False)
         self.dl_btn.clicked.connect(lambda: self.start_download())
         bl.addLayout(prog_col, 1)
@@ -709,8 +728,14 @@ class MainWindow(QMainWindow):
         url = self.url_edit.text().strip()
         if not url or self.info_worker:
             return
+        links = find_links(url)
+        if len(links) > 1 or (links and self.dl_worker):
+            # birden fazla bağlantı ya da indirme sürerken: mevcut listenin sonuna ekle
+            self.url_edit.clear()
+            self.add_links(links)
+            return
         if self.dl_worker:
-            self.notify("İndirme sürüyor", "Yeni liste için mevcut indirmenin bitmesini bekleyin.", "warning")
+            self.notify("İndirme sürüyor", "Bağlantı tanınmadı; YouTube video ya da liste bağlantısı girin.", "warning")
             return
         self._last_clip = url
         link = analyze(url)
@@ -793,6 +818,7 @@ class MainWindow(QMainWindow):
             self.table.blockSignals(True)
             if name:
                 it["name"] = name
+                it["custom"] = True
                 item.setText(name)
             else:
                 item.setText(it["name"])  # boş ad kabul edilmez
@@ -802,6 +828,9 @@ class MainWindow(QMainWindow):
     def _on_info(self, data: dict):
         self.playlist = data
         items = data["items"]
+        for i, it in enumerate(items):
+            it["playlist_title"] = data["title"] if data["is_playlist"] else None
+            it["index"] = i + 1
         self.table.setRowCount(0)
         self.rows = []
         for it in items:
@@ -914,43 +943,59 @@ class MainWindow(QMainWindow):
         self.chip_sel.setVisible(total > 0)
         self.chip_done.setVisible(done > 0)
         self.chip_err.setVisible(err > 0)
-        idle = self.dl_worker is None
-        self.dl_btn.setEnabled(checked > 0 and idle)
-        self.dl_btn.setText(f"Seçilenleri İndir ({checked})" if checked else "Seçilenleri İndir")
-        self.retry_btn.setVisible(err > 0 and idle)
-        self.clean_btn.setEnabled(checked > 0 and idle)
+        ready = len(self._ready_rows()) if total else 0
+        self.dl_btn.setEnabled(ready > 0)
+        label = "Kuyruğa Ekle" if self.dl_worker else "Seçilenleri İndir"
+        self.dl_btn.setText(f"{label} ({ready})" if ready else label)
+        self.retry_btn.setVisible(err > 0)
+        self.clean_btn.setEnabled(checked > 0)
+
+    def _ready_rows(self) -> list[int]:
+        """Seçili olup henüz indirilmemiş ve kuyrukta olmayan satırlar."""
+        return [r for r in self._checked_rows() if self.rows[r]["state"] not in BUSY + ("done",)]
 
     # ============================================================ indirme
-    def start_download(self, rows: list[int] | None = None, extend: bool = False):
-        """extend: indirme sürerken sıraya eklenen satırlar mevcut partiye dahil edilir."""
-        rows = rows if rows is not None else self._checked_rows()
-        if not rows or self.dl_worker:
+    def _make_job(self, r: int) -> dict:
+        it = self.playlist["items"][r]
+        self.rows[r].update(pct=0.0, path=None)
+        self._set_row_state(r, "queued", "Sırada")
+        if not (it.get("single") and it.get("format")):
+            it["format"] = self.settings["format"]
+        named = it.get("resolved", True) or it.get("custom")
+        return {"row": r, "url": it["url"], "index": it.get("index") or r + 1, "format": it["format"],
+                "name": it.get("name") if named else None, "playlist_title": it.get("playlist_title"),
+                "clean": self.settings["clean_titles"]}
+
+    def start_download(self, rows: list[int] | None = None):
+        rows = self._ready_rows() if rows is None else [r for r in rows if self.rows[r]["state"] not in BUSY]
+        if not rows:
             return
         if not ffmpeg_path():
             self.notify("ffmpeg bulunamadı", "Dönüştürme yapılamıyor.", "error")
             return
+        jobs = [self._make_job(r) for r in rows]
+        what = f"“{self.playlist['items'][rows[0]]['name']}”" if len(rows) == 1 else f"{len(rows)} öğe"
+
+        if self.dl_worker:  # çalışan kuyruğa ekle
+            if self.dl_worker.add_jobs(jobs):
+                self._batch += rows
+            else:
+                self._pending_rows += rows
+            self._update_overall()
+            self._update_counts()
+            self.notify("Kuyruğa eklendi", what, "info")
+            return
+
         s = self.settings
         opts = {
             "download_dir": s["download_dir"], "format": s["format"],
             "audio_quality": s["audio_quality"], "video_quality": s["video_quality"],
             "playlist_folder": s["playlist_folder"], "number_prefix": s["number_prefix"],
             "embed_thumbnail": s["embed_thumbnail"],
-            "is_playlist": self.playlist["is_playlist"], "playlist_title": self.playlist["title"],
         }
-        jobs = []
-        for r in rows:
-            it = self.playlist["items"][r]
-            self.rows[r].update(pct=0.0, path=None)
-            self._set_row_state(r, "queued")
-            it.setdefault("format", s["format"])
-            if not it.get("single"):
-                it["format"] = s["format"]
-            jobs.append({"row": r, "url": it["url"], "index": r + 1, "format": it["format"],
-                         "name": it.get("name"), "single": it.get("single", False)})
-        self._batch = self._batch + rows if extend else rows
+        self._batch = rows
         self._cancelled = False
-
-        self.dl_worker = DownloadWorker(jobs, opts, ydl_base_opts(s))
+        self.dl_worker = DownloadWorker(jobs, opts, ydl_base_opts(s), workers=s["concurrent"])
         self.dl_worker.progress.connect(self._on_progress)
         self.dl_worker.state.connect(self._on_state)
         self.dl_worker.saved.connect(lambda r, p: self.rows[r].__setitem__("path", p))
@@ -958,10 +1003,113 @@ class MainWindow(QMainWindow):
         self._set_busy(True)
         self._update_overall()
         self.dl_worker.start()
-        if extend:
+        self.notify("İndirme başladı", f"{what} · {self._format_desc()} · aynı anda {s['concurrent']} dosya",
+                    "info", system=True)
+
+    def _concurrency_changed(self):
+        n = self.conc_combo.currentData()
+        self.settings["concurrent"] = n
+        self.settings.save()
+        if self.dl_worker:
+            self.dl_worker.set_workers(n)
+
+    # ------------------------------------------------------ bağlantı ekleme
+    def open_multi_links(self):
+        text = self.url_edit.text().strip()
+        dlg = MultiLinkDialog(self, "\n".join(find_links(text)))
+        if dlg.exec() and dlg.links():
+            self.url_edit.clear()
+            self.add_links(dlg.links(), start=dlg.start_now)
+
+    def _show_table(self):
+        if self.list_stack.currentWidget() is not self.table:
+            if not self.rows:
+                self.playlist = {"is_playlist": False, "title": "", "items": []}
+            self.list_title.setText("İndirme listesi")
+            self.list_stack.setCurrentWidget(self.table)
+
+    def add_links(self, urls: list[str], start: bool = False):
+        """Bağlantıları mevcut listenin sonuna ekler; bilgiler arka planda paralel alınır."""
+        if not urls:
             return
-        what = f"“{self.playlist['items'][rows[0]]['name']}”" if len(rows) == 1 else f"{len(rows)} öğe"
-        self.notify("İndirme başladı", f"{what} sıraya alındı · {self._format_desc()}", "info", system=True)
+        self._show_table()
+        known = {it["url"] for it in self.playlist["items"]}
+        tasks, new_rows, lists, skipped = [], [], 0, 0
+        for url in urls:
+            link = analyze(url)
+            if link.kind == "playlist":
+                tasks.append((("list", start), link.playlist_url))
+                lists += 1
+                continue
+            target = link.video_url or url  # "both" ve "mix" bağlantılarında yalnızca video
+            if target in known:
+                skipped += 1
+                continue
+            known.add(target)
+            it = {"title": target, "url": target, "duration": None, "uploader": "", "single": True,
+                  "resolved": False}
+            self.playlist["items"].append(it)
+            r = self._append_row(it)
+            self.rows[r]["detail"].setText("Bilgiler alınıyor…")
+            tasks.append((r, target))
+            new_rows.append(r)
+
+        if tasks:
+            worker = MultiInfoWorker(tasks, ydl_base_opts(self.settings))
+            worker.resolved.connect(self._on_link_resolved)
+            worker.failed.connect(self._on_link_failed)
+            worker.finished.connect(lambda w=worker: self._resolvers.remove(w))
+            self._resolvers.append(worker)
+            worker.start()
+        if start and new_rows:
+            self.start_download(new_rows)
+        parts = [f"{len(new_rows)} video"] if new_rows else []
+        if lists:
+            parts.append(f"{lists} liste (öğeleri ekleniyor)")
+        if skipped:
+            parts.append(f"{skipped} tekrar atlandı")
+        self.notify("Bağlantılar eklendi", " · ".join(parts) or "Yeni bağlantı yok", "success" if parts else "neutral")
+        self._update_counts()
+
+    def _on_link_resolved(self, key, data: dict):
+        if isinstance(key, int):  # tek video satırı
+            r = key
+            if not data["items"] or r >= len(self.playlist["items"]):
+                return
+            it, info = self.playlist["items"][r], data["items"][0]
+            it.update(title=info["title"], duration=info["duration"], uploader=info["uploader"], resolved=True)
+            if not it.get("custom"):
+                it["name"] = self._display_name(info["title"])
+            self.table.blockSignals(True)
+            cell = self.table.item(r, COL_TITLE)
+            cell.setText(it["name"])
+            cell.setToolTip(f"YouTube başlığı: {it['title']}\n{it['uploader']}".strip())
+            self.table.item(r, COL_DUR).setText(fmt_duration(it["duration"]))
+            self.table.blockSignals(False)
+            if self.rows[r]["state"] == "waiting":
+                self.rows[r]["detail"].setText("")
+        else:  # oynatma listesi: öğeleri sona ekle
+            _, start = key
+            known = {it["url"] for it in self.playlist["items"]}
+            new_rows = []
+            for i, info in enumerate(data["items"]):
+                if info["url"] in known:
+                    continue
+                it = {**info, "playlist_title": data["title"] or None, "index": i + 1}
+                self.playlist["items"].append(it)
+                new_rows.append(self._append_row(it))
+            self.notify("Liste eklendi", f"{data['title'] or 'Oynatma listesi'} · {len(new_rows)} öğe", "success")
+            if start and new_rows:
+                self.start_download(new_rows)
+        self._update_counts()
+
+    def _on_link_failed(self, key, msg: str):
+        if isinstance(key, int):
+            if self.rows[key]["state"] == "waiting":
+                self._set_row_state(key, "error", msg)
+        else:
+            self.notify("Liste alınamadı", msg[:160], "error")
+        self._update_counts()
 
     def quick_add(self, item: dict, fmt: str | None = None):
         """Tarayıcıdan gelen tek videoyu listeye ekleyip indirir."""
@@ -972,22 +1120,15 @@ class MainWindow(QMainWindow):
         url = link.video_url or item["url"]
         fmt = fmt or self.settings["format"]
         for r, it in enumerate(self.playlist["items"]):
-            if it["url"] == url and self.rows[r]["state"] in ("queued", "active", "processing"):
+            if it["url"] == url and self.rows[r]["state"] in BUSY:
                 self.notify("Zaten sırada", it["name"], "neutral")
                 return
+        self._show_table()
         it = {"title": item.get("title") or url, "url": url, "duration": None, "uploader": "",
               "single": True, "format": fmt}
         self.playlist["items"].append(it)
         r = self._append_row(it)
-        if self.list_stack.currentWidget() is not self.table:
-            self.list_title.setText("İndirme listesi")
-            self.list_stack.setCurrentWidget(self.table)
-        if self.dl_worker:
-            self._pending_rows.append(r)
-            self._set_row_state(r, "queued")
-            self.notify("Sıraya eklendi", f"{it['name']} · {fmt.upper()}", "info")
-        else:
-            self.start_download([r])
+        self.start_download([r])
         self._update_counts()
 
     def _on_detected(self, item: dict):
@@ -1001,12 +1142,11 @@ class MainWindow(QMainWindow):
         self.quick_add(item, item.get("format"))
 
     def _set_busy(self, busy: bool):
-        for w in (self.seg, self.quality_combo, self.dir_btn, self.fetch_btn):
+        # Biçim ve kalite çalışan kuyruğun ayarlarıdır; indirme sürerken değiştirilemez.
+        for w in (self.seg, self.quality_combo, self.dir_btn):
             w.setEnabled(not busy)
         self.cancel_btn.setVisible(busy)
         self.cancel_btn.setEnabled(True)
-        if busy:
-            self.dl_btn.setEnabled(False)
         self._update_counts()
 
     def retry_failed(self):
@@ -1016,6 +1156,8 @@ class MainWindow(QMainWindow):
     def cancel_download(self):
         if self.dl_worker:
             self._cancelled = True
+            for r in self._pending_rows:
+                self._set_row_state(r, "cancelled", "İptal edildi")
             self._pending_rows = []
             self.dl_worker.cancel()
             self.cancel_btn.setEnabled(False)
@@ -1062,9 +1204,12 @@ class MainWindow(QMainWindow):
 
     def _on_finished(self):
         if self._pending_rows and not self._cancelled:
+            # kuyruk kapanırken eklenenler: aynı parti içinde yeni bir kuyrukla devam et
             pending, self._pending_rows = self._pending_rows, []
+            batch = self._batch
             self.dl_worker = None
-            QTimer.singleShot(0, lambda: self.start_download(pending, extend=True))
+            self.start_download(pending)
+            self._batch = batch + pending
             return
         rows = [self.rows[r] for r in self._batch]
         ok = sum(r["state"] == "done" for r in rows)

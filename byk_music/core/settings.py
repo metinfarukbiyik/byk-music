@@ -8,6 +8,7 @@ DEFAULTS = {
     "format": "mp3",            # mp3 | mp4
     "audio_quality": "192",     # kbps
     "video_quality": "best",    # best | 2160 | 1440 | 1080 | 720 | 480 | 360
+    "concurrent": 3,            # aynı anda indirilecek dosya sayısı (1-5)
     "playlist_folder": True,    # liste indirmelerinde alt klasör oluştur
     "number_prefix": False,     # liste sırasını dosya adına ekle
     "embed_thumbnail": True,    # MP3'e kapak resmi göm
