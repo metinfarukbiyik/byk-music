@@ -18,7 +18,7 @@ from ..core import updater
 from ..core.bridge import PORT, BrowserBridge
 from ..core.extension import BROWSERS, sync_extension_files
 from ..core.downloader import DownloadWorker, InfoWorker, MultiInfoWorker, ffmpeg_path, fmt_duration
-from ..core.history import History, reveal_in_folder
+from ..core.history import TRASH_NAME, History, move_to_trash, reveal_in_folder
 from ..core.links import analyze
 from ..core.naming import clean_title, safe_filename
 from ..core.net import ConnectionTestWorker, account_opts, url_opener, ydl_base_opts
@@ -492,18 +492,29 @@ class MainWindow(QMainWindow):
         self.hist_search.setFixedWidth(280)
         self.hist_search.textChanged.connect(self._refresh_history)
         self.hist_count = Badge("", "neutral")
+        hist_all = QPushButton()
+        hist_all.setObjectName("iconBtn")
+        hist_all.setToolTip("Tümünü seç / seçimi kaldır")
+        set_icon(hist_all, "checkbox-multiple-marked-outline", size=18)
+        hist_all.clicked.connect(self._toggle_history_selection)
+        self.hist_delete_btn = QPushButton("Seçilenleri Sil")
+        self.hist_delete_btn.setObjectName("danger")
+        self.hist_delete_btn.setMinimumWidth(170)
+        set_icon(self.hist_delete_btn, "delete-outline", "#B42318")
+        self.hist_delete_btn.clicked.connect(lambda: self._delete_history(self._checked_history()))
         clear = QPushButton("Geçmişi Temizle")
-        clear.setObjectName("danger")
-        set_icon(clear, "delete-outline", "#B42318")
+        set_icon(clear, "delete-sweep-outline")
         clear.clicked.connect(self._clear_history)
         bar.addWidget(self.hist_search)
         bar.addWidget(self.hist_count)
         bar.addStretch()
+        bar.addWidget(hist_all)
+        bar.addWidget(self.hist_delete_btn)
         bar.addWidget(clear)
         lay.addLayout(bar)
 
-        self.hist_table = QTableWidget(0, 4)
-        self.hist_table.setHorizontalHeaderLabels(["TARİH", "BAŞLIK", "BİÇİM", "İŞLEMLER"])
+        self.hist_table = QTableWidget(0, 5)
+        self.hist_table.setHorizontalHeaderLabels(["", "TARİH", "BAŞLIK", "BİÇİM", "İŞLEMLER"])
         self.hist_table.verticalHeader().setVisible(False)
         self.hist_table.setAlternatingRowColors(True)
         self.hist_table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -513,10 +524,12 @@ class MainWindow(QMainWindow):
         self.hist_table.verticalHeader().setDefaultSectionSize(46)
         hh = self.hist_table.horizontalHeader()
         hh.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        for col, width in ((0, 140), (2, 90), (3, 200)):
+        for col, width in ((0, 40), (1, 130), (3, 90), (4, 250)):
             hh.setSectionResizeMode(col, QHeaderView.Fixed)
             self.hist_table.setColumnWidth(col, width)
-        hh.setSectionResizeMode(1, QHeaderView.Stretch)
+        hh.setSectionResizeMode(2, QHeaderView.Stretch)
+        self.hist_table.itemChanged.connect(lambda _: self._update_history_actions())
+        self._hist_view: list[dict] = []
 
         self.hist_empty = EmptyState("history", "Geçmiş boş", "İndirdiğiniz dosyalar burada listelenir.")
         self.hist_stack = QStackedWidget()
@@ -1402,35 +1415,39 @@ class MainWindow(QMainWindow):
     def _refresh_history(self):
         q = self.hist_search.text().casefold().strip()
         items = [h for h in self.history.items if q in h["title"].casefold()]
+        self._hist_view = items
         self.hist_count.set(f"{len(self.history.items)} kayıt", "neutral")
+        self.hist_table.blockSignals(True)
         self.hist_table.setRowCount(0)
         for i, h in enumerate(items):
             self.hist_table.insertRow(i)
+            chk = QTableWidgetItem()
+            chk.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+            chk.setCheckState(Qt.Unchecked)
+            self.hist_table.setItem(i, 0, chk)
             try:
                 date = datetime.fromisoformat(h["date"]).strftime("%d.%m.%Y %H:%M")
             except ValueError:
                 date = h["date"]
             d = QTableWidgetItem(date)
             d.setForeground(Qt.gray)
-            self.hist_table.setItem(i, 0, d)
+            self.hist_table.setItem(i, 1, d)
             t = QTableWidgetItem(h["title"])
             t.setToolTip(h["path"])
-            self.hist_table.setItem(i, 1, t)
+            self.hist_table.setItem(i, 2, t)
 
-            fmt = h.get("format", "mp3")
             bw = QWidget()
             bl = QHBoxLayout(bw)
             bl.setContentsMargins(6, 0, 6, 0)
-            bl.addWidget(format_badge(fmt))
+            bl.addWidget(format_badge(h.get("format", "mp3")))
             bl.addStretch()
-            self.hist_table.setCellWidget(i, 2, bw)
+            self.hist_table.setCellWidget(i, 3, bw)
 
             aw = QWidget()
             al = QHBoxLayout(aw)
-            al.setContentsMargins(4, 0, 4, 0)
+            al.setContentsMargins(4, 0, 8, 0)
             al.setSpacing(4)
-            exists = Path(h["path"]).exists()
-            if exists:
+            if Path(h["path"]).exists():
                 play = QPushButton("Aç")
                 play.setObjectName("link")
                 set_icon(play, "play-circle-outline", ACCENT)
@@ -1446,7 +1463,16 @@ class MainWindow(QMainWindow):
             else:
                 al.addWidget(Badge("Dosya yok", "error"))
             al.addStretch()
-            self.hist_table.setCellWidget(i, 3, aw)
+            delete = QPushButton()
+            delete.setObjectName("rowDelete")
+            delete.setToolTip("Bu kaydı sil")
+            delete.setCursor(Qt.PointingHandCursor)
+            set_icon(delete, "trash-can-outline", "#98A2B3", 17)
+            delete.clicked.connect(lambda _=False, e=h: self._delete_history([e]))
+            al.addWidget(delete)
+            self.hist_table.setCellWidget(i, 4, aw)
+        self.hist_table.blockSignals(False)
+        self._update_history_actions()
 
         if items:
             self.hist_stack.setCurrentWidget(self.hist_table)
@@ -1456,15 +1482,69 @@ class MainWindow(QMainWindow):
                                 else "İndirdiğiniz dosyalar burada listelenir.")
             self.hist_stack.setCurrentWidget(self.hist_empty)
 
-    def _clear_history(self):
-        if not self.history.items:
+    def _checked_history(self) -> list[dict]:
+        return [self._hist_view[r] for r in range(self.hist_table.rowCount())
+                if self.hist_table.item(r, 0).checkState() == Qt.Checked]
+
+    def _update_history_actions(self):
+        n = len(self._checked_history())
+        self.hist_delete_btn.setEnabled(n > 0)
+        self.hist_delete_btn.setText(f"Seçilenleri Sil ({n})" if n else "Seçilenleri Sil")
+
+    def _toggle_history_selection(self):
+        rows = range(self.hist_table.rowCount())
+        on = any(self.hist_table.item(r, 0).checkState() != Qt.Checked for r in rows)
+        self.hist_table.blockSignals(True)
+        for r in rows:
+            self.hist_table.item(r, 0).setCheckState(Qt.Checked if on else Qt.Unchecked)
+        self.hist_table.blockSignals(False)
+        self._update_history_actions()
+
+    def _delete_history(self, entries: list[dict]):
+        """Kayıtları siler; kullanıcı isterse dosyaları da Geri Dönüşüm Kutusu'na taşır."""
+        if not entries:
             return
-        if QMessageBox.question(self, "Geçmişi temizle",
-                                "Tüm geçmiş kayıtları silinsin mi?\nİndirilen dosyalar silinmez.") != QMessageBox.Yes:
+        existing = [e for e in entries if Path(e["path"]).exists()]
+        box = QMessageBox(self)
+        box.setWindowTitle("Kayıtları sil")
+        box.setIconPixmap(icon("trash-can-outline", "#B42318").pixmap(40, 40))
+        if len(entries) == 1:
+            box.setText(f"“{entries[0]['title']}” geçmişten silinsin mi?")
+        else:
+            box.setText(f"{len(entries)} kayıt geçmişten silinsin mi?")
+        files = None
+        if existing:
+            files = QCheckBox(f"İndirilen dosyaları da sil ({len(existing)} dosya {TRASH_NAME}'na taşınır)")
+            box.setCheckBox(files)
+            box.setInformativeText("İşaretlemezseniz yalnızca kayıtlar silinir, dosyalar bilgisayarınızda kalır.")
+        delete_btn = box.addButton("Sil", QMessageBox.DestructiveRole)
+        delete_btn.setObjectName("dangerSolid")
+        cancel = box.addButton("Vazgeç", QMessageBox.RejectRole)
+        box.setDefaultButton(cancel)
+        box.exec()
+        if box.clickedButton() is not delete_btn:
             return
-        self.history.clear()
+
+        moved = failed = 0
+        if files is not None and files.isChecked():
+            for e in existing:
+                if move_to_trash(e["path"]):
+                    moved += 1
+                else:
+                    failed += 1
+        removed = self.history.remove(entries)
         self._refresh_history()
-        self.notify("Geçmiş temizlendi", "", "neutral")
+
+        text = f"{len(removed)} kayıt silindi" if len(removed) > 1 else "Kayıt silindi"
+        if moved:
+            text += f" · {moved} dosya {TRASH_NAME}'na taşındı"
+        if failed:
+            text += f" · {failed} dosya taşınamadı"
+        undo = None if moved else ("Geri al", lambda: (self.history.restore(removed), self._refresh_history()))
+        self.notify(text, "", "warning" if failed else "neutral", action=undo)
+
+    def _clear_history(self):
+        self._delete_history(list(self.history.items))
 
     # ================================================ güncelleme / diğer
     def open_developer(self):

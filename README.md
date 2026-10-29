@@ -15,7 +15,9 @@ Geliştirici: **Metin Faruk Bıyık** · [biyik.dev](https://biyik.dev) · metin
 - Biçim, kalite, eşzamanlı indirme sayısı ve kayıt klasörü seçimi üst çubukta
 - Satır bazında durum rozetleri, ilerleme çubukları, genel ilerleme, durdurma ve hatalıları yeniden deneme
 - Uygulama içi bildirimler ve sistem bildirimleri (indirme başladı / tamamlandı)
-- İndirme geçmişi, listede arama, panodaki YouTube bağlantısını otomatik algılama
+- İndirme geçmişi: arama, MP3 / MP4 rozetleri, tek tek ya da toplu silme (isteğe bağlı olarak dosyaları
+  Geri Dönüşüm Kutusu'na taşıma, kayıt silmeyi geri alma)
+- Listede arama, panodaki YouTube bağlantısını otomatik algılama
 - **Dosya adı düzenleme:** "(Official Video)", "[HD]", "#etiket" gibi kalıplar otomatik temizlenir; ad indirmeden önce
   listede çift tıklanarak değiştirilebilir ve MP3 etiketine (sanatçı / başlık) yazılır
 - **Akıllı bağlantı algılama:** YouTube'un otomatik "Mix / Radyo" listeleri (`&list=RD…`) yerine yalnızca video alınır;

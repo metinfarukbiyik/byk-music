@@ -140,6 +140,10 @@ QLabel#okNote {{ background: #ECFDF3; color: #067647; border: 1px solid #ABEFC6;
 QPushButton#smallBtn {{ padding: 4px 10px; font-size: 12px; border-radius: 6px; }}
 QFrame#addressBox {{ background: #F5F8FF; border: 1px solid #C7D7FE; border-radius: 10px; }}
 QLabel#addressText {{ font-size: 16px; font-weight: 800; color: {ACCENT}; }}
+QPushButton#rowDelete {{ background: transparent; border: none; padding: 4px; border-radius: 6px; }}
+QPushButton#rowDelete:hover {{ background: #FEE4E2; }}
+QPushButton#dangerSolid {{ background: {ERROR}; border: 1px solid {ERROR}; color: white; }}
+QPushButton#dangerSolid:hover {{ background: #D92D20; }}
 QFrame#loadingHead {{ background: transparent; border: none; border-bottom: 1px solid {BORDER}; }}
 QFrame#bubble {{ background: {SURFACE}; border: 1px solid #D0D5DD; border-radius: 14px; }}
 QLabel#bubbleTitle {{ font-size: 14px; font-weight: 700; }}

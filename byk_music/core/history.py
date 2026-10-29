@@ -32,11 +32,33 @@ class History:
         self.items = []
         self.save()
 
+    def remove(self, entries: list[dict]) -> list[tuple[int, dict]]:
+        """Kayıtları siler; geri almak için (konum, kayıt) listesini döndürür."""
+        ids = {id(e) for e in entries}
+        removed = [(i, e) for i, e in enumerate(self.items) if id(e) in ids]
+        self.items = [e for e in self.items if id(e) not in ids]
+        self.save()
+        return removed
+
+    def restore(self, removed: list[tuple[int, dict]]):
+        for index, entry in sorted(removed, key=lambda x: x[0]):
+            self.items.insert(min(index, len(self.items)), entry)
+        self.save()
+
     def save(self):
         try:
             self._file.write_text(json.dumps(self.items, indent=1, ensure_ascii=False), encoding="utf-8")
         except OSError:
             pass
+
+
+TRASH_NAME = "Çöp Kutusu" if sys.platform == "darwin" else "Geri Dönüşüm Kutusu"
+
+
+def move_to_trash(path: str) -> bool:
+    """Dosyayı kalıcı silmek yerine Geri Dönüşüm Kutusu'na / Çöp Kutusu'na taşır."""
+    from PySide6.QtCore import QFile
+    return Path(path).exists() and QFile(path).moveToTrash()  # statik sürüm (bool, yol) demeti döndürür
 
 
 def reveal_in_folder(path: str):
