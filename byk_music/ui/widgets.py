@@ -1,4 +1,4 @@
-from PySide6.QtCore import QPropertyAnimation, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QObject, QPropertyAnimation, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QPen
 from PySide6.QtWidgets import (QButtonGroup, QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QLayout,
                                QProgressBar, QPushButton, QSizePolicy, QVBoxLayout, QWidget)
@@ -357,3 +357,31 @@ class ElidedLabel(QLabel):
         text = self.fontMetrics().elidedText(self.text(), Qt.ElideRight, self.width())
         p.drawText(self.rect(), Qt.AlignLeft | Qt.AlignVCenter, text)
         p.end()
+
+
+class EmptyOverlay(QObject):
+    """Tablo boşken başlıklarıyla birlikte görünür kalır; boş durum mesajı tablonun içinde ortalanır."""
+
+    def __init__(self, table, widget: QWidget):
+        super().__init__(table)
+        self.table, self.widget = table, widget
+        widget.setParent(table.viewport())
+        widget.setAttribute(Qt.WA_TranslucentBackground)
+        table.viewport().installEventFilter(self)
+        model = table.model()
+        for sig in (model.rowsInserted, model.rowsRemoved, model.modelReset):
+            sig.connect(self.sync)
+        self.sync()
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Resize:
+            self.widget.setGeometry(obj.rect())
+        return False
+
+    def sync(self, *_):
+        try:
+            self.widget.setGeometry(self.table.viewport().rect())
+            self.widget.setVisible(self.table.rowCount() == 0)
+            self.widget.raise_()
+        except RuntimeError:
+            pass  # uygulama kapanırken tablo silinmiş olabilir

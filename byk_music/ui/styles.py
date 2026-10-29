@@ -69,7 +69,8 @@ QWidget#sidebar {{ background: {SIDEBAR}; }}
 QLabel#brand {{ color: white; font-size: 15px; font-weight: 700; }}
 QLabel#brandSub, QLabel#sideSection {{ color: #6B7A93; font-size: 11px; }}
 QLabel#sideSection {{ font-weight: 700; }}
-QPushButton#nav {{ background: transparent; border: none; border-radius: 8px; }}
+QPushButton#nav {{ background: transparent; border: none; border-radius: 8px; min-height: 40px; max-height: 40px;
+                   padding: 0; }}
 QPushButton#nav:hover {{ background: {SIDEBAR_HOVER}; }}
 QPushButton#nav:checked {{ background: {SIDEBAR_ACTIVE}; }}
 QLabel#navText, QLabel#navIcon {{ color: {SIDEBAR_TEXT}; background: transparent; }}
@@ -109,9 +110,10 @@ QFrame#devHero QLabel#heroChip {{ background: rgba(255, 255, 255, 34); color: #D
                    font-size: 11px; font-weight: 700; }}
 QLabel#stepNum {{ background: {ACCENT_SOFT}; color: {ACCENT}; border-radius: 11px; font-size: 11px; font-weight: 800; }}
 QPushButton#contactChip {{ background: {SURFACE}; border: 1px solid #D0D5DD; border-radius: 12px; padding: 5px 12px;
+                           min-height: 0;
                            font-size: 12px; font-weight: 600; color: #344054; text-align: left; }}
 QPushButton#contactChip:hover {{ border-color: {ACCENT}; color: {ACCENT}; background: #FAFBFF; }}
-QPushButton#primarySm, QPushButton#whatsappSm {{ border-radius: 7px; padding: 6px 14px; font-size: 12px; color: white; }}
+QPushButton#primarySm, QPushButton#whatsappSm {{ border-radius: 7px; padding: 0 14px; min-height: 28px; font-size: 12px; color: white; }}
 QPushButton#primarySm {{ background: {ACCENT}; border: 1px solid {ACCENT}; }}
 QPushButton#primarySm:hover {{ background: {ACCENT_HOVER}; }}
 QPushButton#whatsappSm {{ background: #25D366; border: 1px solid #25D366; }}
@@ -137,10 +139,10 @@ QPushButton#browserCard:hover {{ border-color: {ACCENT}; }}
 QPushButton#browserCard:checked {{ border: 2px solid {ACCENT}; background: #F5F8FF; }}
 QFrame#autoBox {{ background: #F6FEF9; border: 1px solid #ABEFC6; border-radius: 10px; }}
 QLabel#okNote {{ background: #ECFDF3; color: #067647; border: 1px solid #ABEFC6; border-radius: 8px; padding: 8px 10px; }}
-QPushButton#smallBtn {{ padding: 4px 10px; font-size: 12px; border-radius: 6px; }}
+QPushButton#smallBtn {{ padding: 0 10px; min-height: 26px; font-size: 12px; border-radius: 6px; }}
 QFrame#addressBox {{ background: #F5F8FF; border: 1px solid #C7D7FE; border-radius: 10px; }}
 QLabel#addressText {{ font-size: 16px; font-weight: 800; color: {ACCENT}; }}
-QPushButton#rowDelete {{ background: transparent; border: none; padding: 4px; border-radius: 6px; }}
+QPushButton#rowDelete {{ background: transparent; border: none; padding: 4px; border-radius: 6px; min-height: 0; }}
 QPushButton#rowDelete:hover {{ background: #FEE4E2; }}
 QPushButton#dangerSolid {{ background: {ERROR}; border: 1px solid {ERROR}; color: white; }}
 QPushButton#dangerSolid:hover {{ background: #D92D20; }}
@@ -148,31 +150,41 @@ QFrame#loadingHead {{ background: transparent; border: none; border-bottom: 1px 
 QFrame#bubble {{ background: {SURFACE}; border: 1px solid #D0D5DD; border-radius: 14px; }}
 QLabel#bubbleTitle {{ font-size: 14px; font-weight: 700; }}
 
-/* düğmeler */
-QPushButton {{ background: {SURFACE}; border: 1px solid #D0D5DD; border-radius: 8px; padding: 7px 14px;
-               font-weight: 600; color: #344054; }}
-QPushButton:hover {{ background: #F9FAFB; border-color: #98A2B3; }}
-QPushButton:disabled {{ color: #98A2B3; background: #F2F4F7; border-color: #E4E7EC; }}
-QPushButton#primary {{ background: {ACCENT}; border-color: {ACCENT}; color: white; padding: 8px 18px; }}
-QPushButton#primary:hover {{ background: {ACCENT_HOVER}; }}
-QPushButton#primary:disabled {{ background: #A4BCFD; border-color: #A4BCFD; color: white; }}
-QPushButton#iconBtn {{ padding: 6px; min-width: 22px; }}
-QPushButton#danger {{ color: #B42318; border-color: #FDA29B; }}
-QPushButton#danger:hover {{ background: #FEF3F2; }}
-QPushButton#whatsapp {{ background: #25D366; border-color: #25D366; color: white; padding: 8px 18px; }}
-QPushButton#whatsapp:hover {{ background: #1EBE5A; }}
+/* düğmeler: tüm düğmeler aynı yükseklikte (34 px, giriş kutularıyla eşit) */
+QPushButton {{ background: {SURFACE}; border: 1px solid #D0D5DD; border-radius: 8px; padding: 0 14px;
+               min-height: 32px; font-weight: 600; color: #344054; }}
+QPushButton:hover {{ background: #F9FAFB; border-color: #98A2B3; color: {TEXT}; }}
+QPushButton:pressed {{ background: #EEF1F5; }}
+QPushButton:disabled {{ background: {SURFACE}; border-color: #E4E7EC; color: #A8B1BD; }}
+
+QPushButton#primary {{ background: {ACCENT}; border-color: {ACCENT}; color: white; padding: 0 18px; }}
+QPushButton#primary:hover {{ background: {ACCENT_HOVER}; border-color: {ACCENT_HOVER}; }}
+QPushButton#primary:pressed {{ background: #173A9E; border-color: #173A9E; }}
+QPushButton#primary:disabled {{ background: #B9CBFB; border-color: #B9CBFB; color: white; }}
+
+QPushButton#danger {{ background: {SURFACE}; border-color: #FDA29B; color: #B42318; }}
+QPushButton#danger:hover {{ background: #FEF3F2; border-color: #F97066; color: #912018; }}
+QPushButton#danger:pressed {{ background: #FEE4E2; }}
+QPushButton#danger:disabled {{ background: #FFFBFA; border-color: #FEE4E2; color: #F4A9A1; }}
+
+QPushButton#iconBtn {{ padding: 0; min-width: 32px; max-width: 32px; }}
+
+QPushButton#whatsapp {{ background: #25D366; border-color: #25D366; color: white; padding: 0 18px; }}
+QPushButton#whatsapp:hover {{ background: #1EBE5A; border-color: #1EBE5A; }}
 QPushButton#whatsapp:disabled {{ background: #A6E9C0; border-color: #A6E9C0; color: white; }}
-QLabel#avatar {{ background: {ACCENT}; color: white; border-radius: 32px; font-size: 22px; font-weight: 700; }}
-QPlainTextEdit#messageEdit {{ border: 1px solid #D0D5DD; border-radius: 8px; padding: 8px; font-size: 13px; }}
-QPlainTextEdit#messageEdit:focus {{ border-color: {ACCENT}; }}
-QPushButton#link {{ background: transparent; border: none; color: {ACCENT}; padding: 2px 4px; }}
+
+QPushButton#link {{ background: transparent; border: none; color: {ACCENT}; padding: 2px 4px; min-height: 0; }}
 QPushButton#link:hover {{ color: {ACCENT_HOVER}; text-decoration: underline; }}
 QPushButton#link:disabled {{ color: #98A2B3; }}
 
+QLabel#avatar {{ background: {ACCENT}; color: white; border-radius: 32px; font-size: 22px; font-weight: 700; }}
+QPlainTextEdit#messageEdit {{ border: 1px solid #D0D5DD; border-radius: 8px; padding: 8px; font-size: 13px; }}
+QPlainTextEdit#messageEdit:focus {{ border-color: {ACCENT}; }}
+
 /* segment (MP3 / MP4) */
 QFrame#segment {{ background: #F2F4F7; border: 1px solid {BORDER}; border-radius: 8px; }}
-QPushButton#segBtn {{ background: transparent; border: 1px solid transparent; border-radius: 6px;
-                      padding: 5px 20px; color: {MUTED}; font-weight: 700; }}
+QPushButton#segBtn {{ background: transparent; border: 1px solid transparent; border-radius: 6px; min-height: 24px;
+                      padding: 0 20px; color: {MUTED}; font-weight: 700; }}
 QPushButton#segBtn:hover {{ color: {TEXT}; }}
 QPushButton#segBtn:checked {{ background: {SURFACE}; color: {ACCENT}; border-color: {BORDER}; }}
 QPushButton#segBtn:disabled {{ color: #98A2B3; }}
@@ -216,7 +228,7 @@ QLabel#badge {{ border-radius: 10px; padding: 2px 10px; font-size: 11px; font-we
 /* bildirim kartı */
 QFrame#toast {{ background: {SURFACE}; border: 1px solid #D0D5DD; border-radius: 10px; }}
 QLabel#toastTitle {{ font-weight: 700; }}
-QPushButton#toastClose {{ background: transparent; border: none; color: #98A2B3; padding: 0; font-size: 12px; }}
+QPushButton#toastClose {{ background: transparent; border: none; color: #98A2B3; padding: 0; min-height: 0; font-size: 12px; }}
 QPushButton#toastClose:hover {{ color: {TEXT}; }}
 
 QTabWidget::pane {{ border: 1px solid {BORDER}; background: {SURFACE}; border-radius: 10px; top: -1px; }}

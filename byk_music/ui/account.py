@@ -8,7 +8,7 @@ from ..core.bridge import cookie_file
 from ..core.net import installed_browsers, ydl_base_opts
 from .icons import pixmap, set_icon
 from .styles import ACCENT
-from .widgets import Badge, EmptyState, Segmented, card, field
+from .widgets import Badge, EmptyOverlay, EmptyState, Segmented, card, field
 
 KIND_ICONS = {"liked": "thumb-up-outline", "later": "clock-outline", "playlist": "playlist-music"}
 METHODS = ["extension", "browser", "file"]
@@ -188,10 +188,8 @@ class AccountPage(QWidget):
             self.table.setColumnWidth(col, width)
 
         self.empty = EmptyState("youtube", "Hesap bağlı değil", self._empty_text())
-        self.stack = QStackedWidget()
-        self.stack.addWidget(self.empty)
-        self.stack.addWidget(self.table)
-        lay.addWidget(self.stack, 1)
+        EmptyOverlay(self.table, self.empty)  # boşken başlıklar görünür, mesaj tablonun içinde
+        lay.addWidget(self.table, 1)
 
         self._items: list[dict] = []
         self._load_from_settings()
@@ -281,7 +279,7 @@ class AccountPage(QWidget):
         self._set_connected(False, busy=True)
         self.empty.set("youtube", "Hesap bilgileri alınıyor",
                        "Kitaplığınız YouTube'dan okunuyor. Bu işlem birkaç saniye sürebilir.", busy=True)
-        self.stack.setCurrentWidget(self.empty)
+        self.table.setRowCount(0)
         self.worker = LibraryWorker(ydl_base_opts(s))
         self.worker.result.connect(self._on_library)
         self.worker.failed.connect(self._on_failed)
@@ -301,7 +299,6 @@ class AccountPage(QWidget):
         self.table.setRowCount(0)
         self.lib_count.hide()
         self.empty.set("youtube", "Hesap bağlı değil", self._empty_text())
-        self.stack.setCurrentWidget(self.empty)
         self._set_connected(False)
         self.notify("Bağlantı kesildi", "YouTube oturum bilgisi bu uygulamadan kaldırıldı.", "neutral")
 
@@ -310,7 +307,7 @@ class AccountPage(QWidget):
         self.settings.save()
         self._set_connected(False)
         self.empty.set("alert-outline", "Hesaba bağlanılamadı", msg[:300])
-        self.stack.setCurrentWidget(self.empty)
+        self.table.setRowCount(0)
         self.notify("Hesaba bağlanılamadı", msg[:200], "error")
 
     def _on_library(self, items: list):
@@ -342,7 +339,7 @@ class AccountPage(QWidget):
             self.table.setCellWidget(i, 2, wrap)
         self.lib_count.set(f"{len(items)} liste", "neutral")
         self.lib_count.show()
-        self.stack.setCurrentWidget(self.table)
+
         self.notify("YouTube hesabı bağlandı", f"{len(items)} liste bulundu.", "success")
 
     def _open_row(self, row: int):

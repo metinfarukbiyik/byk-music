@@ -34,7 +34,7 @@ from .multilink import MultiLinkDialog, find_links
 from .styles import ACCENT, app_icon
 from .toast import ToastManager
 from .update_dialog import UpdateDialog
-from .widgets import Badge, ElidedLabel, EmptyState, LoadingView, NavButton, Segmented, card, field, repolish
+from .widgets import Badge, ElidedLabel, EmptyOverlay, EmptyState, LoadingView, NavButton, Segmented, card, field, repolish
 
 YT_RE = re.compile(r"https?://(www\.|m\.|music\.)?(youtube\.com|youtu\.be)/\S+")
 COL_CHECK, COL_NO, COL_TITLE, COL_DUR, COL_FMT, COL_STATE, COL_PROGRESS = range(7)
@@ -255,9 +255,10 @@ class MainWindow(QMainWindow):
         dir_row.addWidget(open_btn)
 
         self.status_badge = Badge("Hazır", "neutral")
+        self.status_badge.setMinimumWidth(124)  # metin değişince nabız efekti eski genişlikte kalmasın
         status_wrap = QWidget()
         sl = QHBoxLayout(status_wrap)
-        sl.setContentsMargins(0, 4, 0, 4)
+        sl.setContentsMargins(0, 6, 0, 6)
         sl.addWidget(self.status_badge)
 
         lay.addWidget(field("Biçim", self.seg))
@@ -271,6 +272,8 @@ class MainWindow(QMainWindow):
         lay.addWidget(field("Eşzamanlı", self.conc_combo))
         lay.addWidget(field("Kayıt klasörü", dir_row), 1)
         lay.addWidget(field("Durum", status_wrap))
+        for i in range(lay.count()):  # alan başlıkları aynı hizada dursun
+            lay.setAlignment(lay.itemAt(i).widget(), Qt.AlignTop)
         return bar
 
     def _build_update_banner(self) -> QFrame:
@@ -433,10 +436,11 @@ class MainWindow(QMainWindow):
                                      "Yukarıya bir YouTube bağlantısı yapıştırıp Listele'ye tıklayın "
                                      "ya da tarayıcı eklentisiyle YouTube'dan doğrudan gönderin.")
         self.loading = LoadingView()
+        EmptyOverlay(self.table, self.list_empty)  # boşken başlıklar görünür, mesaj tablonun içinde
         self.list_stack = QStackedWidget()
-        self.list_stack.addWidget(self.list_empty)
         self.list_stack.addWidget(self.loading)
         self.list_stack.addWidget(self.table)
+        self.list_stack.setCurrentWidget(self.table)
         lay.addWidget(self.list_stack, 1)
 
         # alt çubuk: genel ilerleme + işlemler
@@ -533,10 +537,8 @@ class MainWindow(QMainWindow):
         self._hist_view: list[dict] = []
 
         self.hist_empty = EmptyState("history", "Geçmiş boş", "İndirdiğiniz dosyalar burada listelenir.")
-        self.hist_stack = QStackedWidget()
-        self.hist_stack.addWidget(self.hist_empty)
-        self.hist_stack.addWidget(self.hist_table)
-        lay.addWidget(self.hist_stack, 1)
+        EmptyOverlay(self.hist_table, self.hist_empty)
+        lay.addWidget(self.hist_table, 1)
         return page
 
     def _build_settings_page(self) -> QWidget:
@@ -903,7 +905,7 @@ class MainWindow(QMainWindow):
     def _on_info_failed(self, msg: str):
         self._set_status("Hazır", "neutral")
         self.list_empty.set("alert-outline", "Bağlantı çözümlenemedi", msg[:300])
-        self.list_stack.setCurrentWidget(self.table if self.rows else self.list_empty)
+        self.list_stack.setCurrentWidget(self.table)
         self.notify("Bağlantı çözümlenemedi", msg[:160], "error")
 
     def _display_name(self, title: str) -> str:
@@ -966,7 +968,7 @@ class MainWindow(QMainWindow):
         else:
             self.list_title.setText("Video")
         self.list_title.setToolTip(data["title"])
-        self.list_stack.setCurrentWidget(self.table if items else self.list_empty)
+        self.list_stack.setCurrentWidget(self.table)
         if not items:
             self.list_empty.set("alert-outline", "Liste boş", "Bu bağlantıda indirilebilir öğe bulunamadı.")
         self._set_status("Hazır", "neutral")
@@ -1171,11 +1173,10 @@ class MainWindow(QMainWindow):
             self.add_links(dlg.links(), start=dlg.start_now)
 
     def _show_table(self):
-        if self.list_stack.currentWidget() is not self.table:
-            if not self.rows:
-                self.playlist = {"is_playlist": False, "title": "", "items": []}
+        if not self.rows:
+            self.playlist = {"is_playlist": False, "title": "", "items": []}
             self.list_title.setText("İndirme listesi")
-            self.list_stack.setCurrentWidget(self.table)
+        self.list_stack.setCurrentWidget(self.table)
 
     def add_links(self, urls: list[str], start: bool = False):
         """Bağlantıları mevcut listenin sonuna ekler; bilgiler arka planda paralel alınır."""
@@ -1477,13 +1478,10 @@ class MainWindow(QMainWindow):
         self.hist_table.blockSignals(False)
         self._update_history_actions()
 
-        if items:
-            self.hist_stack.setCurrentWidget(self.hist_table)
-        else:
+        if not items:
             self.hist_empty.set("history", "Sonuç yok" if q else "Geçmiş boş",
                                 "Aramanızla eşleşen kayıt bulunamadı." if q
                                 else "İndirdiğiniz dosyalar burada listelenir.")
-            self.hist_stack.setCurrentWidget(self.hist_empty)
 
     def _checked_history(self) -> list[dict]:
         return [self._hist_view[r] for r in range(self.hist_table.rowCount())
