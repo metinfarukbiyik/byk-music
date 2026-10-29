@@ -92,6 +92,7 @@ class MainWindow(QMainWindow):
         self._install_on_exit = False  # kullanıcı "Daha Sonra Kur" dedi
         self._ask_when_ready = False   # kullanıcı indirmeyi arka plana aldı; bitince sor
         self._active_update_dialog = None
+        self._stale_workers = []       # daha yeni sürüm çıktığı için sonucu yok sayılan indirmeler
         self._installing = False
         self._last_clip = ""
         self._new_history = 0
@@ -1574,9 +1575,24 @@ class MainWindow(QMainWindow):
         return bool(self.update_info and self.update_info["url"] and updater.is_frozen())
 
     def _on_update_available(self, info: dict):
-        """Yeni sürüm bulundu. Kurulum yalnızca kullanıcının seçimiyle yapılır."""
-        if self.update_info and self.update_info["version"] == info["version"]:
-            return  # bu sürüm zaten işleniyor
+        """Yeni sürüm bulundu. Kurulum yalnızca kullanıcının seçimiyle yapılır.
+        Her zaman en son sürümün tam kurulum dosyası kullanılır; aradaki sürümler tek tek kurulmaz."""
+        if self.update_info:
+            if updater.parse_version(info["version"]) <= updater.parse_version(self.update_info["version"]):
+                return  # bu sürüm (ya da daha yenisi) zaten işleniyor
+            # Daha yeni bir sürüm çıktı: eski sürüm için hazırlanan dosyayı bırak, doğrudan en yenisine geç
+            logging.getLogger("byk.updater").info("v%s yerine doğrudan v%s kullanılacak",
+                                                  self.update_info["version"], info["version"])
+            self._discard_pending_update()
+            self.update_info = info
+            self.nav_update.set_badge("Yeni", "success")
+            if self._install_on_exit or self._ask_when_ready:
+                # kullanıcı kurulumu zaten onaylamıştı: en yeni sürümü hazırla, yeniden sorma
+                if self._can_self_update():
+                    self._download_update()
+                self._refresh_banner()
+                self.notify("Daha yeni sürüm bulundu", f"Doğrudan en son sürüm v{info['version']} kurulacak.", "info")
+                return
         self.update_info = info
         self._update_prompted = False
         self.nav_update.set_badge("Yeni", "success")
@@ -1623,17 +1639,32 @@ class MainWindow(QMainWindow):
         else:
             self._download_update(dlg)
 
+    def _discard_pending_update(self):
+        """Eski sürüm için indirilmiş ya da inmekte olan dosyayı geçersiz kılar."""
+        if self._pending_update:
+            try:
+                Path(self._pending_update).unlink()
+            except OSError:
+                pass
+        self._pending_update = None
+        if self.up_dl_worker and self.up_dl_worker.isRunning():
+            self._stale_workers.append(self.up_dl_worker)  # sonucu yok sayılır
+            self.up_dl_worker = None
+
     def _download_update(self, dlg: UpdateDialog | None = None):
         """Güncelleme dosyasını indirir. Kurulum burada yapılmaz."""
         if self.up_dl_worker and self.up_dl_worker.isRunning():
             return
         info = self.update_info
+        version = info["version"]
         self.up_dl_worker = updater.UpdateDownloadWorker(info["url"], info["name"], url_opener(self.settings))
         self.up_dl_worker.progress.connect(lambda pct: self._refresh_banner(pct))
         if dlg:
             self.up_dl_worker.progress.connect(dlg.set_progress)
 
         def failed(msg):
+            if not self.update_info or self.update_info["version"] != version:
+                return
             self._refresh_banner()
             box = self._active_update_dialog
             if box and box.isVisible():
@@ -1642,6 +1673,12 @@ class MainWindow(QMainWindow):
                 self.notify("Güncelleme indirilemedi", msg[:160], "error")
 
         def done(path):
+            if not self.update_info or self.update_info["version"] != version:
+                try:
+                    Path(path).unlink()  # bu arada daha yeni sürüm çıktı; eski dosya kullanılmaz
+                except OSError:
+                    pass
+                return
             self._pending_update = path
             self.nav_update.set_badge("Hazır", "success")
             self._refresh_banner()
