@@ -20,7 +20,7 @@ env:
   PYTHON_VERSION: "3.12"
   PYTHONUTF8: "1"   # Windows konsolunda Türkçe karakterler için
   PYI_COMMON: >-
-    --noconfirm --clean --windowed --name BYKMusic
+    --noconfirm --clean --windowed --noupx --name BYKMusic
     --collect-all yt_dlp --collect-all imageio_ffmpeg --collect-all certifi --collect-all qtawesome
     --add-data browser-extension:browser-extension
 
@@ -52,6 +52,13 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
       - run: pip install -r requirements-dev.txt
+      # PyInstaller'ın hazır başlatıcısı (bootloader) kötü amaçlı yazılımlarda da kullanıldığı için
+      # antivirüsler onu yanlışlıkla virüs sanabiliyor. Başlatıcıyı her derlemede kaynaktan derleyerek
+      # kendimize özgü bir dosya üretiyoruz; bu yanlış alarmları büyük ölçüde azaltır.
+      - name: PyInstaller başlatıcısını kaynaktan derle
+        env:
+          PYINSTALLER_COMPILE_BOOTLOADER: "1"
+        run: pip install --force-reinstall --no-deps --no-cache-dir --no-binary pyinstaller "pyinstaller>=6.6"
       - run: python packaging/prepare.py $env:VERSION
 
       - name: Uygulamayı derle

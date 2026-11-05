@@ -38,7 +38,10 @@ def _icon_png(path: Path, draw) -> str:
     draw(p)
     p.end()
     pm.save(str(path))
-    return path.as_posix()
+    # Yol mutlaka tırnak içinde verilmeli: kullanıcı klasöründe Türkçe karakter (ö, ş, İ...) varsa
+    # Qt tırnaksız url(...) değerini ayrıştıramıyor ve stil dosyasının TAMAMINI yok sayıyor.
+    quoted = path.as_posix().replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{quoted}"'
 
 
 def _assets(asset_dir: Path) -> dict:
